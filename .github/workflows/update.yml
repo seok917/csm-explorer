@@ -32,7 +32,7 @@ jobs:
       - id: dart
         name: 1) DART 새 공시 수집
         env:
-          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          DART_API_KEY: ${{ secrets.DART_API_KEY || secrets.DART_KEY }}   # 저장소에는 DART_KEY 이름으로 등록됨
           VERIFY: ${{ inputs.verify }}
         run: |
           if [ -n "$VERIFY" ]; then

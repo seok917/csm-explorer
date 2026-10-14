@@ -42,7 +42,7 @@ python tests/test_pipeline.py                        # 자동 테스트 25개
 | `분기 자동 업데이트` (`.github/workflows/update.yml`) | 매주 월요일 10시(한국시간), 또는 수동 실행 | DART에서 새 정기보고서 확인 → 있으면 CSM 표 수집(`pipeline/collect_dart.py`) → 원문 표 추출 → 자동 검증 → 요약 → AI 설명 → 테스트 통과 시에만 커밋 → 사이트 갱신. 새 분기·반기 공시는 기간(예: 2026 3분기)으로 자동 추가되고, 금감원 잔액이 아직 없으면 기초를 전년 연말 검증값에 맞춰 표를 고름 |
 | `AI 설명 생성` (`.github/workflows/ai-explain.yml`) | 변동표·AI 모듈이 바뀔 때, 또는 수동 실행 | AI 설명 생성 → 숫자 가드레일 대조 → 결과 커밋 → 사이트 갱신. 자료가 같은 회사·연도는 다시 부르지 않음 |
 
-API 키는 코드에 넣지 않고 저장소 Settings → Secrets and variables → Actions의 `ANTHROPIC_API_KEY`, `DART_API_KEY`로만 읽습니다.
+API 키는 코드에 넣지 않고 저장소 Settings → Secrets and variables → Actions의 `ANTHROPIC_API_KEY`, `DART_KEY`(또는 `DART_API_KEY`)로만 읽습니다.
 
 **AI 설명 실행 기록** (`data/ai_runs.csv`, 모델 Claude Haiku 4.5, 72개 회사·기간)
 | 실행 | 처음부터 통과 | 다시 써서 통과 | 반려 | 처음 쓴 문장에 틀린 숫자 |
