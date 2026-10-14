@@ -1,0 +1,64 @@
+# AI 설명 생성 + 숫자 가드레일 대조 → 결과를 저장소에 커밋하고 사이트 갱신
+# API 키는 코드에 없음: 저장소 Settings → Secrets → Actions의 ANTHROPIC_API_KEY만 사용
+name: AI 설명 생성
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: '자료가 같아도 전부 다시 생성'
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - 'data/movement.csv'
+      - 'pipeline/ai_explain.py'
+      - 'pipeline/guard.py'
+      - '.github/workflows/ai-explain.yml'
+permissions:
+  contents: write
+  pages: write
+concurrency:
+  group: ai-explain
+  cancel-in-progress: false
+jobs:
+  explain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: key
+        name: API 키 등록 여부 확인
+        run: echo "has=${{ secrets.ANTHROPIC_API_KEY != '' }}" >> "$GITHUB_OUTPUT"
+      - if: steps.key.outputs.has != 'true'
+        run: echo "ANTHROPIC_API_KEY가 등록되지 않아 AI 설명을 건너뜁니다."
+      - if: steps.key.outputs.has == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - if: steps.key.outputs.has == 'true'
+        run: pip install -r requirements.txt
+      - if: steps.key.outputs.has == 'true'
+        name: AI 설명 생성 + 숫자 대조
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python pipeline/ai_explain.py ${{ inputs.force && '--force' || '' }}
+      - if: steps.key.outputs.has == 'true'
+        name: 화면 데이터·페이지 갱신
+        run: |
+          python pipeline/export_web.py
+          python pipeline/build_site.py
+      - if: steps.key.outputs.has == 'true'
+        name: 결과 커밋
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add -A data index.html
+          if git diff --cached --quiet; then echo "변경 없음"; exit 0; fi
+          git commit -m "AI 설명 갱신 (GitHub Actions 자동 실행)"
+          git push
+      - if: steps.key.outputs.has == 'true'
+        name: 사이트 다시 배포 요청
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X POST "repos/${{ github.repository }}/pages/builds"

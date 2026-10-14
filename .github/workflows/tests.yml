@@ -1,0 +1,17 @@
+# 저장소에 올라올 때마다 자동 테스트(가드레일·데이터 무결성·회귀·원문 추출·AI 흐름) 실행
+name: 테스트
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: 자동 테스트
+        run: python tests/test_pipeline.py

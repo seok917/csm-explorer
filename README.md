@@ -1,5 +1,7 @@
 # CSM 공시 탐색기
 
+[![테스트](https://github.com/seok917/csm-explorer/actions/workflows/tests.yml/badge.svg)](https://github.com/seok917/csm-explorer/actions/workflows/tests.yml)
+
 생명보험사 22곳의 IFRS17 보험계약마진(CSM) 공시를 자동으로 수집·정리·검증해,
 **회사명을 검색하면 지표·변동 분해·검증 결과가 바로 나오는 웹페이지**로 보여주는 개인 프로젝트입니다.
 
@@ -32,6 +34,14 @@ python pipeline/run_all.py                           # 전체 실행
 ANTHROPIC_API_KEY=sk-... python pipeline/run_all.py  # AI 설명까지 (키는 코드·저장소에 넣지 말 것)
 python tests/test_pipeline.py                        # 자동 테스트 21개
 ```
+
+## 자동 실행 (GitHub Actions)
+| 작업 | 언제 | 내용 |
+|---|---|---|
+| `테스트` (`.github/workflows/tests.yml`) | 저장소에 올라올 때마다 | 자동 테스트 21개 실행, 결과는 위 배지에 표시 |
+| `AI 설명 생성` (`.github/workflows/ai-explain.yml`) | 변동표·AI 모듈이 바뀔 때, 또는 수동 실행 | AI 설명 생성 → 숫자 가드레일 대조 → 결과 커밋 → 사이트 갱신. 자료가 같은 회사·연도는 다시 부르지 않음 |
+
+API 키는 코드에 넣지 않고 저장소 Settings → Secrets and variables → Actions의 `ANTHROPIC_API_KEY`로만 읽습니다.
 
 ## 원문 표 자동 추출 (`pipeline/extract_movement.py`)
 보험사마다 변동표 양식이 다릅니다. 전환방법별 열(수정소급·공정가치·그 밖의 계약)과 소계 열 유무, 포트폴리오·유배당/무배당별 분할 표,

@@ -7,9 +7,11 @@ AI 설명 생성 + 숫자 가드레일
 
 API 키는 코드에 쓰지 않음 → 환경변수 ANTHROPIC_API_KEY로만 읽음 (GitHub에 올릴 때도 키는 Secrets에)
 키가 없으면 아무것도 하지 않고 종료 (나머지 파이프라인은 그대로 작동)
-실행: ANTHROPIC_API_KEY=... python pipeline/ai_explain.py [--only 신한라이프]
+실행: ANTHROPIC_API_KEY=... python pipeline/ai_explain.py [--only 신한라이프] [--force]
+- 원표 숫자(자료)가 바뀌지 않은 회사·연도는 다시 호출하지 않음(비용 절약). --force면 전부 다시 생성
+- GitHub Actions(.github/workflows/ai-explain.yml)에서 저장소 Secret의 키로 실행
 """
-import json, os, sys, time, urllib.request, urllib.error
+import hashlib, json, os, sys, time, urllib.request, urllib.error
 sys.path.insert(0, os.path.dirname(__file__))
 from guard import verify, facts_from
 
@@ -55,10 +57,11 @@ def main():
         print('ANTHROPIC_API_KEY가 없어 AI 설명을 건너뜁니다 (화면에는 규칙 기반 요약 표시).')
         return
     only = sys.argv[sys.argv.index('--only') + 1] if '--only' in sys.argv else None
+    force = '--force' in sys.argv
     web = json.load(open(f'{D}/web.json', encoding='utf-8'))
     path = f'{D}/ai_explanations.json'
     done = json.load(open(path, encoding='utf-8')) if os.path.exists(path) else {}
-    stats = dict(ok=0, fixed=0, rejected=0, error=0)
+    stats = dict(ok=0, fixed=0, rejected=0, error=0, skipped=0)
     for c in web['companies']:
         if only and c['name'] != only: continue
         aes = {a['year']: a for a in c['ae']}
@@ -67,6 +70,9 @@ def main():
             ae = aes.get(year[:4]) if aes.get(year[:4], {}).get('exp') is not None else None
             facts = build_facts_text(c['name'], year, rec, ae)
             allowed = facts_from(rec, ae)
+            h = hashlib.sha1((MODEL + SYSTEM + facts).encode()).hexdigest()[:12]   # 자료·지시문·모델이 같으면 다시 부르지 않음
+            if not force and done.get(k, {}).get('hash') == h:
+                stats['skipped'] += 1; continue
             msgs = [{'role': 'user', 'content': f'[자료]\n{facts}\n\n위 자료로 CSM 변동 원인을 설명해 주세요.'}]
             try:
                 text = call(msgs, key); g = verify(text, allowed); attempts = 1
@@ -77,9 +83,14 @@ def main():
                 status = 'ok' if g['ok'] and attempts == 1 else ('fixed' if g['ok'] else 'rejected')
                 stats[status] += 1
                 done[k] = dict(text=text.strip(), model=MODEL, guard=g, attempts=attempts, status=status,
-                               created=time.strftime('%Y-%m-%d'))
+                               created=time.strftime('%Y-%m-%d'), hash=h)
                 print(f"{k:<24} {status:<9} 숫자 {g['checked']}개 대조, 불일치 {g['mismatches']}")
-            except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, KeyError) as e:
+            except urllib.error.HTTPError as e:
+                if e.code in (401, 403):                         # 키 오류는 72번 반복하지 않고 바로 중단
+                    print(f'API 키 인증 실패({e.code}): 저장소 Secret의 ANTHROPIC_API_KEY를 확인하세요.')
+                    sys.exit(1)
+                stats['error'] += 1; print(f'{k:<24} 호출 실패: HTTP {e.code} {e.read()[:200]!r}')
+            except (urllib.error.URLError, TimeoutError, KeyError) as e:
                 stats['error'] += 1; print(f'{k:<24} 호출 실패: {e}')
             time.sleep(0.5)
     json.dump(done, open(path, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
