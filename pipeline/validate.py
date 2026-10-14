@@ -19,8 +19,11 @@ for _, r in mv.iterrows():
     co, y = r.company, r.year
     # R1 항등식: 기초 + 신계약 + 상각 + 이자부리 + 조정 = 기말
     gap = r.open + r.new + r.release + r.interest + r.adjust - r.close
-    add(co, y, 'R1 변동표 항등식', '통과' if abs(gap) <= TOL(r.close) else '불일치',
-        f'기초+변동−기말 = {gap:,.1f}억')
+    if '잔차' in str(r.source):   # 변동 요소 하나를 잔차로 계산한 경우 항등식은 항상 성립 → 검증으로 세지 않음
+        add(co, y, 'R1 변동표 항등식', '자료없음', f'변동 요소 일부를 잔차로 산출({r.source.split("·")[-1].strip()}) → 항등식 검증 불가')
+    else:
+        add(co, y, 'R1 변동표 항등식', '통과' if abs(gap) <= TOL(r.close) else '불일치',
+            f'기초+변동−기말 = {gap:,.1f}억')
     # R2 금감원(FISIS) 잔액 대조
     f = fz[(fz.company == co) & (fz.year == y)]
     if len(f) and pd.notna(f.fisis_close.iloc[0]):
@@ -65,6 +68,15 @@ for _, r in ns.iterrows():
     add(r.company, r.report[:4], 'R6 기준 변경 문구', '주의', f'[{r.kind}] …{r.text.strip()[:110]}…')
 
 ck = pd.DataFrame(out)
+# 검토 메모(사람이 원문을 확인하고 남긴 판단)를 결합 → 감사 추적
+rv = pd.read_csv(f'{D}/review_notes.csv', dtype=str)
+ck['decision'] = ''; ck['note'] = ''
+for _, n in rv.iterrows():
+    m = (ck.rule == n.rule) & ck.status.isin(['불일치', '주의'])
+    if n.company != '*': m &= (ck.company == n.company) & (ck.year == n.year)
+    ck.loc[m, 'decision'] = n.decision; ck.loc[m, 'note'] = n.note
+flag = ck.status.isin(['불일치', '주의'])
+print(f'검토 메모: 걸린 항목 {flag.sum()}건 중 {(flag & (ck.decision != "")).sum()}건 기록, 미기록 {(flag & (ck.decision == "")).sum()}건')
 ck.to_csv(f'{D}/checks.csv', index=False, encoding='utf-8-sig')
 el = time.perf_counter() - t0
 print(f'검증 {len(ck)}건 · {ck.company.nunique()}개사 · {el:.2f}초')

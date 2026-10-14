@@ -1,9 +1,11 @@
-"""한 번에 실행: 데이터 정리 → 원문 신호 탐지 → 자동 검증 → 화면 데이터·요약 → 웹페이지 생성
+"""한 번에 실행: 데이터 정리 → 원문 표에서 변동표 추출 → 원문 신호 탐지 → 자동 검증 → 화면 데이터·요약 → 웹페이지 생성
 실행 시간을 단계별로 기록 (자소서·면접용 실측값)"""
 import subprocess, time, sys, os
 H = os.path.dirname(os.path.abspath(__file__))
-steps = [('1 데이터 정리', 'build_data.py'), ('2 원문 신호 탐지(109개 보고서)', 'scan_notes.py'),
-         ('3 자동 검증(규칙 6개)', 'validate.py'), ('4 지표·요약 문장 생성', 'export_web.py'), ('5 웹페이지 생성', 'build_site.py')]
+steps = [('1 데이터 정리', 'build_data.py'), ('2 원문 표 → CSM 변동표 추출', 'extract_movement.py'),
+         ('2b 원문 신호 탐지(109개 보고서)', 'scan_notes.py'),
+         ('3 자동 검증(규칙 6개)', 'validate.py'), ('4 지표·요약 문장 생성', 'export_web.py'),
+         ('5 AI 설명+숫자 대조(키 있을 때만)', 'ai_explain.py'), ('6 AI 결과 반영', 'export_web.py'), ('7 웹페이지 생성', 'build_site.py')]
 tot = 0
 for name, f in steps:
     t = time.perf_counter(); r = subprocess.run([sys.executable, os.path.join(H, f)], capture_output=True, text=True, cwd=H)

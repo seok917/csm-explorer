@@ -6,7 +6,6 @@ import json, os
 B = os.path.join(os.path.dirname(__file__), '..')
 data = open(f'{B}/data/web.json', encoding='utf-8').read().replace('</', '<\\/')
 tpl = open(f'{B}/site/template.html', encoding='utf-8').read().replace('/*__DATA__*/', data)
-open(f'{B}/site/artifact.html', 'w', encoding='utf-8').write(tpl)
 full = ('<!doctype html>\n<html lang="ko">\n<head>\n<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n'
         '<meta name="description" content="생명보험사 22곳의 CSM 공시를 자동 수집·검증해 회사별로 조회하는 개인 프로젝트">\n'

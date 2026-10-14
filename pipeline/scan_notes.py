@@ -9,7 +9,10 @@ from build_data import SHORT
 TOPIC = re.compile(r'예상보험금|예실차|손해율|보험계약마진|계약서비스마진|위험보험료')
 SIGNAL = re.compile(r'(?:제외하여 작성|제외하고 작성|제도\s?변경|산출\s?기준.{0,8}변경|변경된 기준|기준을 변경|재작성|포함하여 작성)')
 rows = []
-for f in sorted(glob.glob(f'{DUMP}/*/*.12_*_cells.csv.gz')):
+FILES = sorted(glob.glob(f'{DUMP}/*/*.12_*_cells.csv.gz'))
+if not FILES:
+    print('전체 원문 덤프(CSM_DUMP)가 없어 건너뜁니다 (저장소의 note_signals.csv 사용).'); raise SystemExit(0)
+for f in FILES:
     c = pd.read_csv(f, dtype=str).fillna('')
     co = SHORT.get(c.company.iloc[0], c.company.iloc[0]); rep = c.period.iloc[0]
     t = pd.read_csv(f.replace('_cells.csv.gz', '_tables.csv'), dtype=str).fillna('')

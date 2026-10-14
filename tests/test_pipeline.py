@@ -1,0 +1,194 @@
+"""
+자동 테스트 — `python tests/test_pipeline.py` 또는 `pytest tests/`로 실행
+1) 숫자 가드레일이 맞는 문장은 통과시키고 틀린 숫자는 잡아내는지
+2) 데이터·검증 결과의 무결성
+3) 과거에 발견한 오류가 다시 생기지 않는지(회귀 테스트)
+4) 원문 표 자동 추출: 추출률, 수작업 판독값과의 차이 해명, 보정 사유, 스냅숏 재현
+5) AI 설명 모듈의 재시도·반려 흐름 (실제 API 대신 가짜 응답으로)
+"""
+import json, os, sys, shutil, tempfile, csv
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
+sys.path.insert(0, os.path.join(ROOT, 'pipeline'))
+from guard import extract, verify, facts_from
+
+D = os.path.join(ROOT, 'data')
+WEB = json.load(open(os.path.join(D, 'web.json'), encoding='utf-8'))
+CO = {c['name']: c for c in WEB['companies']}
+SH25 = CO['신한라이프']['years']['2025']
+
+
+def checks():
+    return list(csv.DictReader(open(os.path.join(D, 'checks.csv'), encoding='utf-8-sig')))
+
+
+# ---------- 1. 숫자 가드레일 ----------
+def test_extract_units():
+    n = {x['raw']: x['value'] for x in extract('기말 7조 5,537억 원, 신계약 1조 6,460억, 상각 −7,352억, 비율 51%, 예실차 −6.27%p, 7.6조')}
+    assert n['7조 5,537억'] == 75537 and n['1조 6,460억'] == 16460 and n['−7,352억'] == -7352
+    assert n['51%'] == 51 and n['−6.27%p'] == -6.27 and n['7.6조'] == 76000
+
+
+def test_year_is_not_checked():
+    assert verify('2025년 IFRS17 기준', {'억': [], '%': []})['checked'] == 0
+
+
+def test_correct_summary_passes():
+    g = SH25['summary_guard']
+    assert g['ok'] and g['checked'] >= 10, g
+
+
+def test_wrong_number_is_caught():
+    bad = SH25['summary'].replace('7,352억', '7,532억')          # 숫자 자리 바뀜(흔한 전사 오류)
+    g = verify(bad, facts_from(SH25, extra={'%': [WEB['meta']['offset_median']['2025'] * 100], '개수': [6, 0]}))
+    assert not g['ok'] and any('7,532' in m for m in g['mismatches']), g
+
+
+def test_wrong_sign_is_caught():
+    g = verify('조정 추정치 변동 +8,470억 원', facts_from(SH25))
+    assert not g['ok']
+
+
+def test_rounded_jo_is_tolerated():
+    assert verify('기말 CSM은 약 7.6조', facts_from(SH25))['ok']
+
+
+# ---------- 2. 데이터·검증 무결성 ----------
+def test_company_count():
+    assert len(WEB['companies']) == 22
+
+
+def test_all_summaries_pass_guard():
+    bad = [(c['name'], y) for c in WEB['companies'] for y, r in c['years'].items() if not r['summary_guard']['ok']]
+    assert not bad, bad
+
+
+def test_every_flag_has_review_note():
+    miss = [(r['company'], r['year'], r['rule']) for r in checks() if r['status'] in ('불일치', '주의') and not r['decision']]
+    assert not miss, miss
+
+
+def test_shinhan_2025_all_pass():
+    st = {r['rule']: r['status'] for r in checks() if r['company'] == '신한라이프' and r['year'] == '2025'}
+    assert st and all(v == '통과' for v in st.values()), st
+
+
+# ---------- 3. 회귀 테스트(과거에 발견한 오류) ----------
+def test_regression_mirae_unit():           # 원 vs 백만원 단위 불일치
+    r = [x for x in checks() if x['company'] == '미래에셋생명' and x['year'] == '2024' and x['rule'].startswith('R5 급변 탐지(위험')]
+    assert r and r[0]['status'] == '통과', r
+
+
+def test_regression_hanwha_nonlife_table():  # 비생명 표 혼입
+    r = [x for x in checks() if x['company'] == '한화생명' and x['rule'].startswith('R4')]
+    assert r and all(x['status'] == '통과' for x in r), r
+
+
+def test_regression_residual_rows_not_counted():  # 잔차로 만든 행이 항등식 '통과'로 세어지면 안 됨
+    import pandas as pd
+    mv = pd.read_csv(os.path.join(D, 'movement.csv'), dtype={'year': str})
+    res = {(r.company, r.year) for r in mv.itertuples() if '잔차' in str(r.source)}
+    st = {(x['company'], x['year']): x['status'] for x in checks() if x['rule'].startswith('R1')}
+    assert res and all(st[k] == '자료없음' for k in res), res
+
+
+# ---------- 4. 원문 표 → 변동표 자동 추출 ----------
+def _csv(name):
+    import pandas as pd
+    return pd.read_csv(os.path.join(D, name), dtype={'year': str})
+
+
+def test_extraction_coverage():          # 72건 중 자동 추출 성공·수작업 판독값과 일치 건수
+    rep = _csv('extract_report.csv')
+    assert (rep.status != '자동추출 실패').sum() >= 71
+    assert rep.status.isin(['일치', '일치(추가값)']).sum() >= 66, rep.status.value_counts().to_dict()
+
+
+def test_extraction_differences_are_resolved():
+    """자동 ≠ 수작업인 건은 (a) 보정 파일에 사유가 있거나 (b) 자동값이 금감원 잔액·전기 기말과 맞아야 함"""
+    rep, ov, mv, fz = _csv('extract_report.csv'), _csv('overrides.csv'), _csv('movement.csv'), _csv('fisis.csv')
+    ovk = set(zip(ov.company, ov.year))
+    close = {(r.company, r.year): r.close for r in mv.itertuples()}
+    fis = {(r.company, r.year): r.fisis_close for r in fz.itertuples()}
+    for r in rep[rep.status.isin(['차이', '자동추출 실패'])].itertuples():
+        k = (r.company, r.year)
+        if k in ovk:
+            continue
+        m = mv[(mv.company == r.company) & (mv.year == r.year)].iloc[0]
+        prev = close.get((r.company, str(int(r.year[:4]) - 1)))
+        assert abs(m.close - fis[k]) <= 1 and (prev is None or abs(m.open - prev) <= 1), (k, m.open, m.close, prev, fis[k])
+
+
+def test_overrides_have_reason_and_are_applied():
+    ov, mv = _csv('overrides.csv'), _csv('movement.csv')
+    for r in ov.itertuples():
+        assert len(str(r.reason)) >= 20, r
+        src = mv[(mv.company == r.company) & (mv.year == r.year)].source.iloc[0]
+        assert '수작업' in src, src
+
+
+def test_regression_net_row_preferred():           # 자산 쪽 계약의 CSM까지 포함한 '순부채' 행을 써야 함
+    mv = _csv('movement.csv')
+    assert abs(mv[(mv.company == '삼성생명') & (mv.year == '2023')].open.iloc[0] - 107486.9) < 0.5
+
+
+def test_regression_participating_tables_included():   # 유배당 표 누락(수작업 오류) 재발 방지
+    mv = _csv('movement.csv').set_index(['company', 'year'])
+    for co, y, nxt in [('KB라이프', '2025', '2026 상반기'), ('iM라이프', '2025', None), ('처브라이프', '2025', None)]:
+        assert abs(mv.loc[(co, y)].open - mv.loc[(co, str(int(y) - 1))].close) < 0.5, co
+        if nxt:
+            assert abs(mv.loc[(co, nxt)].open - mv.loc[(co, y)].close) < 0.5, co
+
+
+def test_snapshot_reproduces_shinhan_2025():      # 저장소 스냅숏만으로 신한라이프 2025 변동표 재현
+    import extract_movement as E, pandas as pd
+    snap = pd.read_csv(E.SNAP, dtype=str).fillna('')
+    C = E.candidates(snap[(snap.co == '신한라이프') & (snap.period == '2025.12')])
+    res = E.choose(C, 72241.1 * 100, 75537.3 * 100)
+    for k in ('open', 'new', 'release', 'interest', 'adjust', 'close'):
+        assert abs(res[k] / 100 - SH25[k]) < 0.5, (k, res[k] / 100, SH25[k])
+
+
+# ---------- 5. AI 설명 모듈 (가짜 응답) ----------
+def test_ai_retry_then_fixed():
+    import ai_explain
+    tmp = tempfile.mkdtemp()
+    try:
+        web = {'companies': [dict(CO['신한라이프'], years={'2025': SH25})]}
+        json.dump(web, open(os.path.join(tmp, 'web.json'), 'w', encoding='utf-8'), ensure_ascii=False)
+        answers = iter(['조정 추정치 변동은 −9,000억 원입니다.',                 # 1차: 틀린 숫자
+                        '조정 추정치 변동 −8,470억 원은 신계약 CSM의 51%입니다.'])  # 2차: 고친 답
+        ai_explain.D, ai_explain.call = tmp, (lambda msgs, key: next(answers))
+        os.environ['ANTHROPIC_API_KEY'] = 'test-key'
+        ai_explain.main()
+        out = json.load(open(os.path.join(tmp, 'ai_explanations.json'), encoding='utf-8'))['신한라이프|2025']
+        assert out['status'] == 'fixed' and out['attempts'] == 2 and out['guard']['ok'], out
+    finally:
+        os.environ.pop('ANTHROPIC_API_KEY', None); shutil.rmtree(tmp)
+
+
+def test_ai_rejected_when_still_wrong():
+    import importlib, ai_explain
+    importlib.reload(ai_explain)
+    tmp = tempfile.mkdtemp()
+    try:
+        json.dump({'companies': [dict(CO['신한라이프'], years={'2025': SH25})]},
+                  open(os.path.join(tmp, 'web.json'), 'w', encoding='utf-8'), ensure_ascii=False)
+        ai_explain.D, ai_explain.call = tmp, (lambda msgs, key: '신계약 CSM은 2조 원입니다.')
+        os.environ['ANTHROPIC_API_KEY'] = 'test-key'
+        ai_explain.main()
+        out = json.load(open(os.path.join(tmp, 'ai_explanations.json'), encoding='utf-8'))['신한라이프|2025']
+        assert out['status'] == 'rejected', out
+    finally:
+        os.environ.pop('ANTHROPIC_API_KEY', None); shutil.rmtree(tmp)
+
+
+if __name__ == '__main__':
+    tests = [v for k, v in dict(globals()).items() if k.startswith('test_')]
+    fail = 0
+    for t in tests:
+        try:
+            t(); print('통과', t.__name__)
+        except Exception as e:
+            fail += 1; print('실패', t.__name__, '→', repr(e)[:300])
+    print(f'\n{len(tests) - fail}/{len(tests)} 통과')
+    sys.exit(1 if fail else 0)

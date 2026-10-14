@@ -95,11 +95,43 @@ th{font-weight:500;color:var(--muted);font-size:12px}
 .notes small{color:var(--muted);font-size:12px}
 .metricsel{display:flex;gap:4px;flex-wrap:wrap}
 /* 작동 방식 */
-.how{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:10px;counter-reset:s}
+.how{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-top:10px;counter-reset:s}
 .how div{border-top:2px solid var(--accent);padding-top:8px;font-size:13px;color:var(--muted)}
 .how b{display:block;color:var(--ink);font-size:14px;margin-bottom:2px}
 .rules{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 16px;margin-top:12px;font-size:12.5px;color:var(--muted)}
 .rules b{color:var(--ink);font-weight:600}
+
+/* 탭 */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-top:14px}
+.tabs button{font:inherit;font-size:14px;font-weight:600;color:var(--muted);background:none;border:0;border-bottom:2px solid transparent;padding:8px 14px;cursor:pointer;margin-bottom:-1px}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.tabs button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.tabs .cnt{font-family:var(--f-num);font-size:12px;font-weight:500;color:var(--muted);margin-left:4px}
+/* 검토 메모 */
+.review{display:block;margin-top:3px;font-size:12px;color:var(--ink);background:var(--soft);border-radius:6px;padding:4px 8px}
+.review em{font-style:normal;font-weight:600;color:var(--accent);margin-right:6px}
+.guardline{grid-column:2;display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;color:var(--muted)}
+.auto .ai{grid-column:2;margin:6px 0 0;padding-top:8px;border-top:1px dashed var(--line)}
+/* 검증 현황 */
+.qa-tiles{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));border:1px solid var(--line);border-radius:var(--r);background:var(--surface);margin-top:16px}
+.qa-tiles>div{padding:12px 14px;border-left:1px solid var(--line);min-width:0}
+.qa-tiles>div:first-child{border-left:0}
+.qa-tiles .l{font-size:12px;color:var(--muted)} .qa-tiles .v{font-size:20px;font-weight:600}
+.matrix td,.matrix th{text-align:center;padding:5px 6px}
+.matrix td:first-child,.matrix th:first-child{text-align:left;position:sticky;left:0;background:var(--surface)}
+.matrix button.co{font:inherit;font-size:13px;background:none;border:0;color:var(--ink);cursor:pointer;padding:0;text-align:left}
+.matrix button.co:hover{color:var(--accent);text-decoration:underline}
+.dot{display:inline-flex;width:22px;height:22px;border-radius:6px;align-items:center;justify-content:center;font-size:12px;font-weight:700;cursor:default}
+.dot.ok{color:var(--ok);background:var(--ok-bg)} .dot.warn{color:var(--warn);background:var(--warn-bg)} .dot.bad{color:var(--bad);background:var(--bad-bg)} .dot.na{color:var(--na);background:var(--na-bg)}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--muted);margin-top:8px;align-items:center}
+.flagged{list-style:none;padding:0;margin:10px 0 0;display:flex;flex-direction:column;gap:10px}
+.flagged li{display:grid;grid-template-columns:150px minmax(0,1fr);gap:10px;font-size:13px;border-bottom:1px solid var(--line);padding-bottom:10px}
+.flagged b{display:block} .flagged span{color:var(--muted);font-size:12px}
+.fixes td{white-space:normal;text-align:left;vertical-align:top;min-width:140px}
+.fixes th{text-align:left}
+@media (max-width:600px){.fixes thead{display:none}.fixes tr{display:block;padding:8px 0;border-bottom:1px solid var(--line)}.fixes td{display:block;min-width:0;border:0;padding:2px 0}.fixes td:first-child{font-weight:600}}
+.ex-stats{margin:4px 0 12px;font-size:14px;color:var(--ink);line-height:1.6}
+@media (max-width:900px){.qa-tiles{grid-template-columns:repeat(3,minmax(0,1fr))}.qa-tiles>div:nth-child(4){border-left:0}.qa-tiles>div:nth-child(n+4){border-top:1px solid var(--line)}.flagged li{grid-template-columns:1fr}}
 footer{margin-top:28px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px}
 @media (max-width:900px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.kpi{border-left:0;border-top:1px solid var(--line)}.kpi:nth-child(-n+2){border-top:0}.kpi:nth-child(even){border-left:1px solid var(--line)}
  .grid2{grid-template-columns:minmax(0,1fr)}.how{grid-template-columns:repeat(2,minmax(0,1fr))}.rules{grid-template-columns:minmax(0,1fr)}}
@@ -120,13 +152,18 @@ footer{margin-top:28px;font-size:12px;color:var(--muted);border-top:1px solid va
 
 <main class="wrap">
   <div class="quick" id="quick" aria-label="빠른 선택"></div>
+  <nav class="tabs" role="tablist" aria-label="화면 선택">
+    <button type="button" role="tab" id="tabCo" aria-controls="viewCo" aria-selected="true">회사 조회</button>
+    <button type="button" role="tab" id="tabQa" aria-controls="viewQa" aria-selected="false">검증 현황<span class="cnt" id="qaCnt"></span></button>
+  </nav>
   <section class="head">
     <div><h1 id="coName">신한라이프</h1><div class="sub" id="coSub"></div></div>
     <div class="seg" id="yearSeg" role="group" aria-label="연도 선택"></div>
   </section>
 
+  <div id="viewCo" role="tabpanel" aria-labelledby="tabCo">
   <section class="kpis" id="kpis" aria-label="핵심 지표"></section>
-  <section class="auto" aria-label="자동 요약"><span class="tag">자동 요약</span><p id="summary"></p><small>원표 숫자를 규칙 기반 문장에 자동으로 대입해 생성 · 수치 해석은 공시 기준</small></section>
+  <section class="auto" aria-label="자동 요약"><span class="tag">자동 요약</span><p id="summary"></p><div class="guardline" id="guard"></div><div class="ai" id="aiBox" hidden></div><small>원표 숫자를 규칙 기반 문장에 자동으로 대입해 생성하고, 문장 속 숫자를 원표와 다시 대조 · 수치 해석은 공시 기준</small></section>
 
   <div class="grid2">
     <section class="panel"><h2>CSM 변동 분해 <small>억 원 · 기초 → 기말</small></h2><div class="chart" id="wf"></div></section>
@@ -147,14 +184,38 @@ footer{margin-top:28px;font-size:12px;color:var(--muted);border-top:1px solid va
     <h2>공시 원문에서 찾은 기준 변경 신호 <small>R6 · 문구 자동 탐지</small></h2>
     <ul class="notes" id="notes"></ul>
   </section>
+  </div>
+
+  <div id="viewQa" role="tabpanel" aria-labelledby="tabQa" hidden>
+    <section class="qa-tiles" id="qaTiles" aria-label="검증 요약"></section>
+    <section class="panel" style="margin-top:16px" id="exPanel">
+      <h2>원문 표 자동 추출 <small>공시 원문 표 → 변동표 자동 추출값과 수작업 판독값 대조</small></h2>
+      <p class="ex-stats" id="exStats"></p>
+      <div class="tblwrap"><table class="fixes" id="exCases"></table></div>
+    </section>
+    <section class="panel" style="margin-top:16px">
+      <h2>회사 × 규칙 검증 결과 <small id="qaYear"></small></h2>
+      <div class="tblwrap"><table class="matrix" id="matrix"></table></div>
+      <div class="legend"><span class="dot ok">✓</span>통과 <span class="dot warn">!</span>확인 필요 <span class="dot bad">×</span>불일치 <span class="dot na">–</span>자료 없음 · 칸에 마우스를 올리면 근거가, 회사명을 누르면 상세 화면이 나옵니다</div>
+    </section>
+    <section class="panel" style="margin-top:16px">
+      <h2>걸린 항목과 검토 기록 <small>원문 확인 후 판단을 남긴 감사 추적</small></h2>
+      <ul class="flagged" id="flagged"></ul>
+    </section>
+    <section class="panel" style="margin-top:16px">
+      <h2>파이프라인 수정 이력 <small>검증과 테스트가 찾아낸 내 코드의 오류</small></h2>
+      <div class="tblwrap"><table class="fixes" id="fixes"></table></div>
+    </section>
+  </div>
 
   <section style="margin-top:28px">
     <h2 style="font-size:16px">작동 방식</h2>
     <div class="how">
       <div><b>1. 수집</b>DART Open API로 정기·감사보고서 원문을 받아 모든 표를 셀 단위로 저장</div>
-      <div><b>2. 추출</b>회사마다 다른 표 양식을 처리 규칙으로 표준 항목에 맞춤</div>
+      <div><b>2. 추출</b>원문 표에서 CSM 열을 찾아 변동표를 자동 추출하고, 금감원 잔액과 맞는 표 조합을 자동 선택</div>
       <div><b>3. 검증</b>규칙 6개를 회사·연도마다 자동 실행해 불일치·확인 필요 항목 표시</div>
-      <div><b>4. 화면</b>지표 계산과 요약 문장 생성을 거쳐 검색 한 번으로 조회</div>
+      <div><b>4. 검토 기록</b>걸린 항목마다 원문을 확인하고 판단과 근거를 남김</div>
+      <div><b>5. 요약·대조</b>요약 문장(또는 AI 설명) 속 숫자를 원표와 자동 대조한 뒤 화면에 표시</div>
     </div>
     <div class="rules">
       <div><b>R1 변동표 항등식</b> 기초+신계약+상각+이자부리+조정 = 기말</div>
@@ -197,7 +258,7 @@ function showSugg(){ list = match(q.value); hi = list.length? 0 : -1;
   sg.hidden = false; combo.setAttribute('aria-expanded','true'); }
 function hideSugg(){ sg.hidden = true; combo.setAttribute('aria-expanded','false'); }
 function pick(name){ cur.co = name; const yrs = Object.keys(byName[name].years); if(!yrs.includes(cur.year)) cur.year = yrs.includes('2025')?'2025':yrs[yrs.length-1];
-  q.value=''; hideSugg(); q.blur(); render(); save(); }
+  q.value=''; hideSugg(); q.blur(); if(cur.tab==='qa'){ setTab('co'); } else { render(); save(); } }
 q.addEventListener('input', showSugg); q.addEventListener('focus', showSugg);
 q.addEventListener('keydown', e=>{
   if (e.key==='ArrowDown'||e.key==='ArrowUp'){ if(!list.length) return; e.preventDefault(); hi=(hi+(e.key==='ArrowDown'?1:-1)+list.length)%list.length;
@@ -221,7 +282,10 @@ function niceTicks(lo, hi, n=5){ const span=hi-lo||1; const step0=span/n; const 
 function waterfall(r){
   const host=$('wf'); host.innerHTML='';
   const nar=(host.clientWidth||620)<480;
-  const steps=[[nar?'기초':'기초 CSM',r.open,'total'],['신계약',r.new,'d'],[nar?'이자':'이자부리',r.interest,'d'],[nar?'상각':'CSM 상각',r.release,'d'],[nar?'조정':'조정 추정치',r.adjust,'d'],[nar?'기말':'기말 CSM',r.close,'total']];
+  const steps=[[nar?'기초':'기초 CSM',r.open,'total'],['신계약',r.new,'d'],[nar?'이자':'이자부리',r.interest,'d'],[nar?'상각':'CSM 상각',r.release,'d'],[nar?'조정':'조정 추정치',r.adjust,'d']];
+  const gap=r.close-(r.open+r.new+r.interest+r.release+r.adjust);
+  if(Math.abs(gap)>Math.max(1,Math.abs(r.close)*0.001)) steps.push([nar?'잔차':'기타·잔차',gap,'r']);   // 항등식이 맞지 않으면 차이를 따로 표시
+  steps.push([nar?'기말':'기말 CSM',r.close,'total']);
   const W=Math.max(320,host.clientWidth||620),H=300,L=56,R=12,T=22,B=40; const s=svg(W,H); host.appendChild(s);
   let run=0; const bars=steps.map(([k,v,t])=>{ if(t==='total'){ run=v; return {k,v,a:0,b:v,t}; } const a=run; run+=v; return {k,v,a,b:run,t}; });
   const lo=Math.min(0,...bars.map(b=>Math.min(b.a,b.b))), hi=Math.max(...bars.map(b=>Math.max(b.a,b.b)));
@@ -230,7 +294,7 @@ function waterfall(r){
   ticks.forEach(t=>{ el('line',{x1:L,x2:W-R,y1:y(t),y2:y(t),stroke:css('--line'),'stroke-width':1},s);
     el('text',{x:L-8,y:y(t)+4,'text-anchor':'end','font-size':11,fill:css('--muted'),'font-family':css('--f-num')},s,(t/10000).toFixed(t%10000?1:0)+'조'); });
   bars.forEach((b,i)=>{ const x=L+i*bw+bw*.18, w=bw*.64; const top=y(Math.max(b.a,b.b)), bot=y(Math.min(b.a,b.b));
-    const col= b.t==='total'? css('--ink') : (b.v>=0? css('--pos') : css('--neg'));
+    const col= b.t==='total'? css('--ink') : b.t==='r'? css('--na') : (b.v>=0? css('--pos') : css('--neg'));
     el('rect',{x,y:top,width:w,height:Math.max(1.5,bot-top),rx:3,fill:col,opacity:b.t==='total'?.85:1},s);
     if(i<bars.length-1){ el('line',{x1:x+w,x2:x+bw+bw*.18,y1:y(b.b),y2:y(b.b),stroke:css('--muted'),'stroke-dasharray':'3 3','stroke-width':1},s); }
     const lab = b.t==='total'? (W<480? (b.v/10000).toFixed(1)+'조' : won(b.v)) : (W<480? (b.v>=0?'+':'')+(b.v/10000).toFixed(2) : (b.v>=0?'+':'')+n0(b.v)); const fs = W<480? 10 : 11.5;
@@ -263,6 +327,9 @@ $('metricSel').addEventListener('click',e=>{const b=e.target.closest('button'); 
 $('yearSeg').addEventListener('click',e=>{const b=e.target.closest('button'); if(b&&!b.disabled){cur.year=b.dataset.y; render(); save();}});
 
 function render(){
+  if(cur.tab==='qa'){ $('coName').textContent='검증 현황'; $('coSub').textContent=`22개사 · 규칙 6개 · 걸린 항목은 원문을 확인해 판단과 근거를 기록`;
+    $('yearSeg').innerHTML=D.years.map(y=>`<button type="button" data-y="${y}" aria-pressed="${y===cur.year}">${y}</button>`).join('');
+    renderQa(); return; }
   const c=byName[cur.co], r=c.years[cur.year];
   $('coName').textContent=c.name;
   $('coSub').innerHTML=`CSM 잔액 업계 <b class="num">${r.rank}위</b> / ${r.n}곳 · ${esc(cur.year)} · 자료: ${esc(r.source||'DART 주석')}`;
@@ -275,16 +342,21 @@ function render(){
     ['기말 CSM', won(r.close), `<span class="${g>=0?'up':'down'}">${g>=0?'▲':'▼'} ${pct(Math.abs(g),1)}</span> 기초 대비`],
     ['신계약 CSM', won(r.new), `기초 CSM의 ${pct(r.new/r.open)}`],
     ['조정 추정치 변동', won(r.adjust), r.offset!=null? `신계약 대비 ${pct(r.offset)} · 업계 중앙 ${pct(D.meta.offset_median[cur.year])}`:'—'],
-    ['전환일 이후 계약 비중', pct(r.post_share,1), 'IFRS17 전환일 이후 인식 계약의 CSM'],
+    ['전환일 이후 계약 비중', pct(r.post_share,1), '수정소급·공정가치법 외 계약의 CSM (회사에 따라 완전소급 계약 포함)'],
     ['자동 검증', `${nOk} / ${nAll}`, nAll? (nOk===nAll? '모든 규칙 통과':'확인할 항목 있음') : '대상 규칙 없음']
   ].map(([l,v,d])=>`<div class="kpi"><div class="l">${l}</div><div class="v num">${v}</div><div class="d">${d}</div></div>`).join('');
   $('summary').textContent=r.summary;
+  const sg=r.summary_guard;
+  $('guard').innerHTML=`<span class="chip ${sg.ok?'ok':'bad'}">숫자 대조 ${sg.checked-sg.mismatches.length}/${sg.checked} 일치</span>`+(sg.ok?'':`<span>불일치: ${sg.mismatches.map(esc).join(', ')}</span>`);
+  if(r.ai){ $('aiBox').hidden=false; const g=r.ai.guard;
+    $('aiBox').innerHTML=`<span class="chip ok">AI 설명 · 숫자 대조 ${g.checked}/${g.checked} 일치${r.ai.status==='fixed'?' (1회 수정 후)':''}</span><p style="margin:6px 0 0">${esc(r.ai.text)}</p>`; }
+  else { $('aiBox').hidden=true; $('aiBox').innerHTML=''; }
   waterfall(r);
   // 검증
   $('ckYear').textContent=`${cur.year} · 규칙 ${yc.length}건`;
   const cnt={}; yc.forEach(k=>cnt[k.status]=(cnt[k.status]||0)+1);
   $('tally').innerHTML=Object.keys(ST).filter(s=>cnt[s]).map(s=>`<span class="chip ${ST[s][0]}">${ST[s][1]} ${cnt[s]}</span>`).join('');
-  $('checks').innerHTML= yc.length? yc.map(k=>`<li><span class="chip ${ST[k.status][0]}">${ST[k.status][1]}</span><div><b>${esc(k.rule)}</b><span>${esc(k.detail)}</span></div></li>`).join('') : '<li class="empty">이 기간에 해당하는 검증 규칙이 없습니다.</li>';
+  $('checks').innerHTML= yc.length? yc.map(k=>`<li><span class="chip ${ST[k.status][0]}">${ST[k.status][1]}</span><div><b>${esc(k.rule)}</b><span>${esc(k.detail)}</span>${k.decision?`<span class="review"><em>${esc(k.decision)}</em>${esc(k.note)}</span>`:''}</div></li>`).join('') : '<li class="empty">이 기간에 해당하는 검증 규칙이 없습니다.</li>';
   // 요인
   hbars($('fac'), r.assump? Object.entries(r.assump).map(([k,v])=>({k,v})) : [], {signed:true, empty:'이 기간의 요인별 분해는 공시되지 않았거나 합계가 맞지 않아 제외했습니다.'});
   // 가정과 실제
@@ -307,8 +379,46 @@ function render(){
   $('notes').innerHTML = c.notes.length? c.notes.map(n=>`<li><q>${esc(n.text)}</q><small>${esc(n.report)} 보고서 · ${esc(n.kind)}</small></li>`).join('') : '<li class="empty" style="border:0;padding:0">탐지된 기준 변경 문구가 없습니다.</li>';
   document.title = `${c.name} · CSM 공시 탐색기`;
 }
+
+/* ---------- 검증 현황 ---------- */
+const RULES=['R1 변동표 항등식','R2 금감원 잔액 대조','R3 기초=전기 기말','R4 포트폴리오 합계 대조','R5 급변 탐지(위험보험료)','R5 급변 탐지(상쇄율)','R6 기준 변경 문구'];
+const RSHORT=['R1 항등식','R2 금감원','R3 연속성','R4 합계','R5 위험보험료','R5 상쇄율','R6 기준 변경'];
+const SYM={'통과':'✓','주의':'!','불일치':'×','자료없음':'–'};
+const all=C.flatMap(c=>c.checks.map(k=>Object.assign({co:c.name},k)));
+const nFlag=all.filter(k=>k.status==='불일치'||k.status==='주의').length;
+$('qaCnt').textContent=nFlag;
+function renderQa(){
+  const y=cur.year, ys=[y,y.slice(0,4)];
+  const cnt=s=>all.filter(k=>k.status===s).length;
+  const rev=all.filter(k=>(k.status==='불일치'||k.status==='주의')&&k.decision).length;
+  $('qaTiles').innerHTML=[['검증 건수(전체 기간)',all.length],['통과',cnt('통과')],['불일치',cnt('불일치')],['확인 필요',cnt('주의')],['자료 없음',cnt('자료없음')],['검토 기록',`${rev} / ${nFlag}`]]
+    .map(([l,v])=>`<div><div class="l">${l}</div><div class="v num">${v}</div></div>`).join('');
+  $('qaYear').textContent=`${y} 기준 · 연도는 위에서 바꿀 수 있습니다`;
+  const rows=C.map(c=>{ const cells=RULES.map(rule=>{ const k=c.checks.find(x=>x.rule===rule&&ys.includes(x.year));
+      if(!k) return '<td><span class="dot na" title="해당 없음">·</span></td>';
+      const tip=`${k.rule} · ${k.detail}${k.decision?` · 검토: ${k.decision} — ${k.note}`:''}`;
+      return `<td><span class="dot ${ST[k.status][0]}" title="${esc(tip)}" aria-label="${esc(ST[k.status][1]+' '+tip)}">${SYM[k.status]}</span></td>`; }).join('');
+    return `<tr><td><button type="button" class="co" data-n="${esc(c.name)}">${esc(c.name)}</button></td>${cells}</tr>`; }).join('');
+  $('matrix').innerHTML=`<thead><tr><th>회사</th>${RSHORT.map(r=>`<th>${r}</th>`).join('')}</tr></thead><tbody>${rows}</tbody>`;
+  const fl=all.filter(k=>(k.status==='불일치'||k.status==='주의')&&ys.includes(k.year));
+  $('flagged').innerHTML= fl.length? fl.map(k=>`<li><div><b>${esc(k.co)}</b><span class="chip ${ST[k.status][0]}">${ST[k.status][1]}</span></div><div><b>${esc(k.rule)}</b><span>${esc(k.detail)}</span>${k.decision?`<span class="review"><em>${esc(k.decision)}</em>${esc(k.note)}</span>`:'<span class="review"><em>미검토</em></span>'}</div></li>`).join('') : '<li class="empty">이 기간에 걸린 항목이 없습니다.</li>';
+  if(D.extract){ const x=D.extract;
+    $('exStats').innerHTML=`${x.n}개 회사·기간 중 <b>자동 추출 ${x.auto}</b> · 수작업 판독값과 <b>일치 ${x.match}</b>(그중 ${x.extra}건은 수작업에 없던 전환방법별 값까지 확보) · <b>자동값으로 수작업 오류 수정 ${x.corrected}</b> · 사유를 적은 보정 ${x.overridden}`;
+    $('exCases').innerHTML=`<thead><tr><th>회사·기간</th><th>처리</th><th>근거</th><th>최종값</th></tr></thead><tbody>${x.cases.map(c=>`<tr><td>${esc(c.company)} ${esc(c.year)}</td><td>${esc(c.verdict)}</td><td>${esc(c.why)}</td><td>${esc(c.diff||'—')}</td></tr>`).join('')}</tbody>`;
+  } else $('exPanel').hidden=true;
+  $('fixes').innerHTML=`<thead><tr><th>발견 경로</th><th>무엇이 잘못됐나</th><th>조치</th><th>결과</th></tr></thead><tbody>${D.fixes.map(f=>`<tr><td>${esc(f.found_by)}</td><td>${esc(f.issue)}</td><td>${esc(f.action)}</td><td>${esc(f.effect)}</td></tr>`).join('')}</tbody>`;
+}
+$('matrix').addEventListener('click',e=>{const b=e.target.closest('button.co'); if(b){ setTab('co'); pick(b.dataset.n); window.scrollTo({top:0}); }});
+function setTab(t){ cur.tab=t; const qa=t==='qa';
+  $('tabCo').setAttribute('aria-selected',!qa); $('tabQa').setAttribute('aria-selected',qa);
+  $('viewCo').hidden=qa; $('viewQa').hidden=!qa;
+  document.querySelector('.head h1').textContent= qa? '검증 현황' : byName[cur.co].name;
+  render(); save(); }
+$('tabCo').addEventListener('click',()=>setTab('co')); $('tabQa').addEventListener('click',()=>setTab('qa'));
+
 $('foot').innerHTML=`공시자료 기반 개인 분석 프로젝트이며 각 보험회사의 공식 자료가 아닙니다. 자료: 금융감독원 DART 사업·감사보고서 주석(별도), FISIS Open API. 단위 억 원, 2026 상반기는 반기 수치. 정기보고서 ${D.meta.n_reports}건 · 검증 ${D.meta.n_checks}건 · 데이터 기준일 ${D.meta.built}. 만든 사람: 정민석`;
-render();
+if(location.hash==='#qa') cur.tab='qa';
+if(cur.tab==='qa') setTab('qa'); else render();
 const rerender=()=>render();
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',rerender);
 let rt; window.addEventListener('resize',()=>{clearTimeout(rt); rt=setTimeout(rerender,150);});

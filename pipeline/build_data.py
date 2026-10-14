@@ -1,6 +1,6 @@
 """
 1단계: 분석 결과(엑셀·피클)를 앱이 읽을 표준 데이터(CSV)로 정리
-- movement.csv : 회사·연도별 CSM 변동표 (기초·신계약·상각·이자부리·조정·기말, 전환이후 계약)
+- movement_manual.csv : 수작업 판독 CSM 변동표 (자동 추출 결과와 대조용 · 최종 movement.csv는 extract_movement.py가 생성)
 - fisis.csv    : 금감원 FISIS CSM 잔액 (검증용)
 - assump.csv   : 조정 추정치 변동의 요인별 분해
 - ae.csv       : 보험금 예실차비율
@@ -33,6 +33,9 @@ SHORT = {'신한라이프생명보험': '신한라이프', '교보생명보험':
          '삼성생명': '삼성생명', '한화생명': '한화생명', '미래에셋생명': '미래에셋생명'}
 
 def main():
+    if not os.path.exists(XL):
+        print('분석 엑셀이 없어 1단계를 건너뜁니다 (저장소의 data/*.csv 사용).')
+        return
     wb = openpyxl.load_workbook(XL, data_only=True)
 
     # 1) CSM 변동표
@@ -42,7 +45,7 @@ def main():
                             '추정치변동_전환이후': 'adjust_post', '기말CSM_전환이후': 'close_post', '출처 보고서': 'source'})
     mv = mv[['company', 'year', 'open', 'new', 'release', 'interest', 'adjust', 'close', 'adjust_post', 'close_post', 'source']]
     mv['year'] = mv['year'].astype(str)
-    mv.to_csv(f'{OUT}/movement.csv', index=False, encoding='utf-8-sig')
+    mv.to_csv(f'{OUT}/movement_manual.csv', index=False, encoding='utf-8-sig')   # 수작업 판독값 — 최종 변동표는 extract_movement.py가 원문에서 다시 추출
 
     # 2) FISIS 잔액
     fz = sheet_table(wb['검증_FISIS대조'], 4)
@@ -66,6 +69,11 @@ def main():
     # 5) 포트폴리오별 예상손해율
     R = pd.read_pickle(X22 + 'pfab_R.pkl')
     R['company'] = R.co.map(SHORT)
+    # 단위 통일: 미래에셋 2025 사업보고서의 XBRL형 표는 '원' 단위(2024·2025년 값), 2024 보고서는 '백만원'
+    # → 백만원으로 환산. 검증 규칙 R5(위험보험료 급변 +1억%)가 이 불일치를 찾아내 수정함 (review_notes.csv 참고)
+    UNIT = {('미래에셋생명', 2024): 1e-6, ('미래에셋생명', 2025): 1e-6}
+    k = [UNIT.get((c, y), 1.0) for c, y in zip(R.company, R.y)]
+    R['B1'] = R.B1 * k; R['A_PV'] = R.A_PV * k
     R[['company', 'y', 'cat', 'b1', 'r1', 'r1_5', 'r6_10', 'r11p', 'rPV', 'B1', 'A_PV']].rename(columns={'y': 'year'}) \
         .to_csv(f'{OUT}/lossratio.csv', index=False, encoding='utf-8-sig')
 
