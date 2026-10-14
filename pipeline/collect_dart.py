@@ -122,6 +122,11 @@ def csm_only(cells, co, f):
     return df.assign(co=co, period=f['period'], rcept_no=f['rcept_no'])[COLS].astype(str)
 
 
+def note(msg, level='notice'):
+    """GitHub Actions 실행 화면에 결과 한 줄을 남김(로그를 열지 않아도 보이게)"""
+    print(f'::{level} title=DART 수집::{msg}' if os.environ.get('GITHUB_ACTIONS') else msg)
+
+
 def gh_output(**kv):
     p = os.environ.get('GITHUB_OUTPUT')
     if p:
@@ -140,12 +145,12 @@ def verify(key, co, per):
     key_ = lambda d: set(zip(d.doc, d.table_no, d['row'], d['col'], d.value))
     a, b = key_(new.fillna('')), key_(old)
     same = len(a & b) / max(len(b), 1)
-    print(f'{co} {per}: CSM 표 {new.groupby(["doc", "table_no"]).ngroups}개(스냅숏 {old.groupby(["doc", "table_no"]).ngroups}개), '
-          f'셀 {len(a):,} / {len(b):,}, 일치율 {same:.1%}')
+    note(f'점검 {co} {per}: CSM 표 {new.groupby(["doc", "table_no"]).ngroups}개(스냅숏 {old.groupby(["doc", "table_no"]).ngroups}개), '
+         f'셀 {len(a):,} / {len(b):,}, 일치율 {same:.1%}', 'notice' if same >= 0.99 else 'error')
     import extract_movement as E
     for name, src in (('다시 받은 원문', new), ('스냅숏', old)):
         C = E.candidates(src)
-        print(f'  {name}: 변동표 후보 {len(C)}개, 기말 CSM 후보(억) {sorted({round(v / 100, 1) for _, m in C for v, _ in m["close"]})[:8]}')
+        note(f'{name}: 변동표 후보 {len(C)}개, 기말 CSM 후보(억) {sorted({round(v / 100, 1) for _, m in C for v, _ in m["close"]})[:6]}')
     gh_output(new=0)
     return same
 
@@ -153,7 +158,7 @@ def verify(key, co, per):
 def main():
     key = os.environ.get('DART_API_KEY')
     if not key:
-        print('DART_API_KEY가 없어 수집을 건너뜁니다.'); gh_output(new=0)
+        note('DART_API_KEY가 등록되지 않아 수집을 건너뜁니다.', 'warning'); gh_output(new=0)
         if '--verify' in sys.argv:
             sys.exit(1)                                  # 점검을 요청했는데 키가 없으면 실패로 표시
         return
@@ -200,9 +205,17 @@ def main():
     if added:
         snap.to_csv(SNAP, index=False, encoding='utf-8', compression='gzip')
         have.sort_values(['co', 'period']).to_csv(FILINGS, index=False, encoding='utf-8')
-    print('추가:', ', '.join(added) if added else '없음')
+    note(f"확인 {len(set(have.co))}개사 · 새 보고서 {len(todo)}건 · 추가: {', '.join(added) if added else '없음'}")
     gh_output(new=len(added))
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except SystemExit as e:
+        if e.code not in (None, 0):
+            note(str(e.code), 'error')
+        raise
+    except Exception as e:                                # 네트워크·형식 오류도 실행 화면에 바로 보이게
+        note(f'{type(e).__name__}: {e}', 'error')
+        raise
