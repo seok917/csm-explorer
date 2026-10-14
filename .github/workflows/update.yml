@@ -1,0 +1,76 @@
+# 분기 자동 업데이트: 매주 DART에서 새 공시를 확인하고, 새 보고서가 있으면
+# 수집 → 원문 표 추출 → 자동 검증 → 요약 → AI 설명(숫자·표현 대조) → 테스트 → 커밋 → 사이트 갱신
+# 키는 코드에 없음: 저장소 Secrets의 DART_API_KEY, ANTHROPIC_API_KEY만 사용
+name: 분기 자동 업데이트
+on:
+  schedule:
+    - cron: '0 1 * * 1'          # 매주 월요일 10:00(한국시간). 새 공시가 없으면 아무것도 바꾸지 않음
+  workflow_dispatch:
+    inputs:
+      verify:
+        description: '수집기 점검만 하기 — 회사와 기간 (예: 신한라이프 2025.12)'
+        default: ''
+      rebuild:
+        description: '새 공시가 없어도 추출·검증·화면을 다시 계산'
+        type: boolean
+        default: false
+permissions:
+  contents: write
+  pages: write
+concurrency:
+  group: csm-write
+  cancel-in-progress: false
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - id: dart
+        name: 1) DART 새 공시 수집
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          VERIFY: ${{ inputs.verify }}
+        run: |
+          if [ -n "$VERIFY" ]; then
+            python pipeline/collect_dart.py --verify $VERIFY
+          else
+            python pipeline/collect_dart.py
+          fi
+      - id: go
+        run: echo "run=${{ (steps.dart.outputs.new != '0' && steps.dart.outputs.new != '') || inputs.rebuild == true }}" >> "$GITHUB_OUTPUT"
+      - if: steps.go.outputs.run == 'true'
+        name: 2) 원문 표 추출 → 자동 검증 → 요약
+        run: |
+          python pipeline/extract_movement.py
+          python pipeline/validate.py
+          python pipeline/export_web.py
+      - if: steps.go.outputs.run == 'true'
+        name: 3) AI 설명 (자료가 바뀐 회사·기간만) → 화면
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python pipeline/ai_explain.py
+          python pipeline/export_web.py
+          python pipeline/build_site.py
+      - if: steps.go.outputs.run == 'true'
+        name: 4) 자동 테스트 (실패하면 반영하지 않음)
+        run: python tests/test_pipeline.py
+      - if: steps.go.outputs.run == 'true'
+        name: 5) 결과 커밋
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add -A raw data index.html
+          if git diff --cached --quiet; then echo "변경 없음"; exit 0; fi
+          git commit -m "분기 자동 업데이트: 새 공시 반영 (GitHub Actions)"
+          git push
+      - if: steps.go.outputs.run == 'true'
+        name: 6) 사이트 다시 배포 요청
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X POST "repos/${{ github.repository }}/pages/builds"

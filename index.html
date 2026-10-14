@@ -425,7 +425,7 @@ function setTab(t){ cur.tab=t; const qa=t==='qa';
   render(); save(); }
 $('tabCo').addEventListener('click',()=>setTab('co')); $('tabQa').addEventListener('click',()=>setTab('qa'));
 
-$('foot').innerHTML=`공시자료 기반 개인 분석 프로젝트이며 각 보험회사의 공식 자료가 아닙니다. 자료: 금융감독원 DART 사업·감사보고서 주석(별도), FISIS Open API. 단위 억 원, 2026 상반기는 반기 수치. 정기보고서 ${D.meta.n_reports}건 · 검증 ${D.meta.n_checks}건 · 데이터 기준일 ${D.meta.built}. 만든 사람: 정민석`;
+$('foot').innerHTML=`공시자료 기반 개인 분석 프로젝트이며 각 보험회사의 공식 자료가 아닙니다. 자료: 금융감독원 DART 사업·감사보고서 주석(별도), FISIS Open API. 단위 억 원, 반기·분기는 그해 1월부터의 누적 수치. 정기보고서 ${D.meta.n_reports}건 · 검증 ${D.meta.n_checks}건 · 데이터 기준일 ${D.meta.built}. 만든 사람: 정민석`;
 if(location.hash==='#qa') cur.tab='qa';
 if(cur.tab==='qa') setTab('qa'); else render();
 const rerender=()=>render();

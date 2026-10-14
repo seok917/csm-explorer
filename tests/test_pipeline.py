@@ -3,7 +3,7 @@
 1) 숫자 가드레일이 맞는 문장은 통과시키고 틀린 숫자는 잡아내는지
 2) 데이터·검증 결과의 무결성
 3) 과거에 발견한 오류가 다시 생기지 않는지(회귀 테스트)
-4) 원문 표 자동 추출: 추출률, 수작업 판독값과의 차이 해명, 보정 사유, 스냅숏 재현
+4) 원문 표 자동 추출: 추출률, 수작업 판독값과의 차이 해명, 보정 사유, 스냅숏 재현 / 분기 자동 업데이트: 기간 표기, DART 원문 파싱, 새 공시 → 새 기간
 5) AI 설명 모듈의 재시도·반려 흐름, 표현 가드레일 (실제 API 대신 가짜 응답으로)
 """
 import json, os, sys, shutil, tempfile, csv
@@ -146,6 +146,50 @@ def test_snapshot_reproduces_shinhan_2025():      # 저장소 스냅숏만으로
     res = E.choose(C, 72241.1 * 100, 75537.3 * 100)
     for k in ('open', 'new', 'release', 'interest', 'adjust', 'close'):
         assert abs(res[k] / 100 - SH25[k]) < 0.5, (k, res[k] / 100, SH25[k])
+
+
+# ---------- 4b. 분기 자동 업데이트(수집기·새 기간) ----------
+def test_period_labels():
+    from periods import label, prev_year_end, sort_labels
+    assert label('2026.09') == '2026 3분기' and label('2026.12') == '2026' and label('2026.06') == '2026 상반기'
+    assert prev_year_end('2026 3분기') == '2025' and prev_year_end('2025') == '2024'
+    assert sort_labels(['2026', '2026 3분기', '2025', '2026 상반기']) == ['2025', '2026 상반기', '2026 3분기', '2026']
+
+
+def test_collector_parses_dart_tables():   # DART 원문(XML) → 표 셀: 대문자 태그·TE/TU 셀·공백 정리·중첩 표·CSM 표만 남기기
+    import io, zipfile, collect_dart as C
+    xml = ('<?xml version="1.0" encoding="utf-8"?><DOCUMENT><BODY><P>보험계약마진의 변동</P>'
+           '<TABLE><TR><TH>구 분</TH><TH>보험계약마진</TH></TR><TR><TD>기초</TD><TE>1,000</TE></TR>'
+           '<TR><TD>신계약</TD><TU> (50) </TU></TR><TR><TD>기말</TD><TE>950</TE></TR></TABLE>'
+           '<TABLE><TR><TD>단위<TABLE><TR><TD>중첩</TD></TR></TABLE></TD></TR></TABLE></BODY></DOCUMENT>')
+    b = io.BytesIO(); z = zipfile.ZipFile(b, 'w'); z.writestr('20261114000001.xml', xml.encode()); z.close()
+    cells = C.tables_of(b.getvalue())
+    assert ('20261114000001.xml', 1, 3, 2, '(50)') in cells and ('20261114000001.xml', 2, 2, 1, '중첩') in cells
+    df = C.csm_only(cells, '신한라이프', dict(period='2026.09', rcept_no='20261114000001'))
+    assert set(df.table_no) == {'1'} and len(df) == 8
+
+
+def test_new_filing_becomes_new_period():   # 새 3분기 공시가 스냅숏에 들어오면 기간이 자동으로 추가되고 기초=전년 연말로 표를 고름
+    import pandas as pd, extract_movement as E
+    tmp = tempfile.mkdtemp()
+    try:
+        for f in os.listdir(D):
+            if f.endswith('.csv'):
+                shutil.copy(os.path.join(D, f), tmp)
+        s = pd.read_csv(E.SNAP, dtype=str).fillna('')
+        fake = s[(s.co == '신한라이프') & (s.period == '2026.06')].assign(period='2026.09', rcept_no='20261114999999')
+        snap = os.path.join(tmp, 'snap.csv.gz'); pd.concat([s, fake]).to_csv(snap, index=False, compression='gzip')
+        old = (E.D, E.SNAP, E.DUMP)
+        E.D, E.SNAP, E.DUMP = tmp, snap, os.path.join(tmp, 'no-dump')
+        try:
+            E.main()
+        finally:
+            E.D, E.SNAP, E.DUMP = old
+        mv = pd.read_csv(os.path.join(tmp, 'movement.csv'), dtype={'year': str}).set_index(['company', 'year'])
+        assert abs(mv.loc[('신한라이프', '2026 3분기')].open - mv.loc[('신한라이프', '2025')].close) < 0.5
+        assert ('신한라이프', '2026 3분기') not in set(pd.read_csv(os.path.join(D, 'movement.csv'), dtype={'year': str})[['company', 'year']].itertuples(index=False, name=None))
+    finally:
+        shutil.rmtree(tmp)
 
 
 # ---------- 5. AI 설명 모듈 (가짜 응답) ----------

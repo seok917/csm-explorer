@@ -19,7 +19,7 @@
 - **기준 변경 신호**: 공시 원문에서 '제외하여 작성·제도변경·재작성' 등 문구 자동 탐지
 
 ## 작동 방식
-1. **수집**: DART Open API로 정기·감사보고서 109건(22개사, 2023~2026 상반기)의 원문을 받아 모든 표를 셀 단위로 저장 (`17_dart_all_tables.R`)
+1. **수집**: DART Open API로 정기·감사보고서 109건(22개사, 2023~2026 상반기)의 원문을 받아 모든 표를 셀 단위로 저장 (처음엔 R `17_dart_all_tables.R`, 이후 새 공시는 Python `pipeline/collect_dart.py`가 자동 수집)
 2. **추출**: `pipeline/extract_movement.py` — 원문 표에서 CSM 변동표를 자동 추출하고 금감원 잔액으로 맞는 표를 자동 선택 (아래 설명)
 3. **검증**: `pipeline/validate.py` — 규칙 6개 자동 실행 + `data/review_notes.csv`(사람의 검토 판단) 결합
 4. **요약·대조**: `pipeline/export_web.py`(지표·요약 문장) + `pipeline/guard.py`(숫자 가드레일)
@@ -32,16 +32,17 @@
 ```bash
 python pipeline/run_all.py                           # 전체 실행
 ANTHROPIC_API_KEY=sk-... python pipeline/run_all.py  # AI 설명까지 (키는 코드·저장소에 넣지 말 것)
-python tests/test_pipeline.py                        # 자동 테스트 22개
+python tests/test_pipeline.py                        # 자동 테스트 25개
 ```
 
 ## 자동 실행 (GitHub Actions)
 | 작업 | 언제 | 내용 |
 |---|---|---|
-| `테스트` (`.github/workflows/tests.yml`) | 저장소에 올라올 때마다 | 자동 테스트 22개 실행, 결과는 위 배지에 표시 |
+| `테스트` (`.github/workflows/tests.yml`) | 저장소에 올라올 때마다 | 자동 테스트 25개 실행, 결과는 위 배지에 표시 |
+| `분기 자동 업데이트` (`.github/workflows/update.yml`) | 매주 월요일 10시(한국시간), 또는 수동 실행 | DART에서 새 정기보고서 확인 → 있으면 CSM 표 수집(`pipeline/collect_dart.py`) → 원문 표 추출 → 자동 검증 → 요약 → AI 설명 → 테스트 통과 시에만 커밋 → 사이트 갱신. 새 분기·반기 공시는 기간(예: 2026 3분기)으로 자동 추가되고, 금감원 잔액이 아직 없으면 기초를 전년 연말 검증값에 맞춰 표를 고름 |
 | `AI 설명 생성` (`.github/workflows/ai-explain.yml`) | 변동표·AI 모듈이 바뀔 때, 또는 수동 실행 | AI 설명 생성 → 숫자 가드레일 대조 → 결과 커밋 → 사이트 갱신. 자료가 같은 회사·연도는 다시 부르지 않음 |
 
-API 키는 코드에 넣지 않고 저장소 Settings → Secrets and variables → Actions의 `ANTHROPIC_API_KEY`로만 읽습니다.
+API 키는 코드에 넣지 않고 저장소 Settings → Secrets and variables → Actions의 `ANTHROPIC_API_KEY`, `DART_API_KEY`로만 읽습니다.
 
 **AI 설명 실행 기록** (`data/ai_runs.csv`, 모델 Claude Haiku 4.5, 72개 회사·기간)
 | 실행 | 처음부터 통과 | 다시 써서 통과 | 반려 | 처음 쓴 문장에 틀린 숫자 |
@@ -99,7 +100,7 @@ API 키는 코드에 넣지 않고 저장소 Settings → Secrets and variables 
 | 원문 재추출 | KB라이프·iM라이프·처브라이프 2025 수작업 값에 유배당 표 누락. R2·R3 불일치를 '사후 수정'으로 잘못 설명한 검토 기록 6건도 발견 | 유배당 + 유배당 외 합산으로 교체, 틀린 검토 기록 삭제 |
 | 원문 재추출 | 수작업 때 상각·이자부리 행을 못 찾아 잔차로 채운 7건은 항등식 검증 불가 | 회사별 행 이름을 인식해 원문 값으로 대체 (자료 없음 → 통과) |
 
-## 자동 테스트 (`tests/test_pipeline.py`, 22개)
+## 자동 테스트 (`tests/test_pipeline.py`, 25개)
 숫자 가드레일(단위 환산·틀린 숫자·부호·반올림), 데이터 무결성(22개사, 모든 요약 대조 통과, 걸린 항목 전부 검토 기록),
 회귀 테스트(위 오류들이 다시 생기지 않는지), 원문 자동 추출(추출률, 수작업과 다른 건은 보정 사유가 있거나 금감원 잔액·전기 기말과 맞는지,
 순부채 행 우선, 유배당 표 포함, 스냅숏만으로 재현), AI 모듈의 재시도·반려 흐름(가짜 응답으로 검증).
@@ -110,7 +111,9 @@ index.html          완성된 웹페이지 (GitHub Pages가 바로 보여줌)
 data/               표준화된 데이터(CSV)와 화면용 web.json, 검증 결과 checks.csv
                     movement.csv(최종 변동표) · movement_auto.csv(자동 추출) · movement_manual.csv(수작업 판독)
                     extract_report.csv(자동 vs 수작업 대조) · overrides.csv(보정 항목과 사유)
-raw/csm_tables.csv.gz  원문 표 중 CSM 표만 추린 스냅숏(1.4MB) — 전체 덤프 없이 추출 재현
+raw/csm_tables.csv.gz  원문 표 중 CSM 표만 추린 스냅숏(1.4MB) — 전체 덤프 없이 추출 재현, 새 공시가 오면 자동으로 추가
+raw/filings.csv     이미 받은 보고서 목록(접수번호) — 새 공시·정정공시 판단 기준
+.github/workflows/  자동 실행(테스트 · AI 설명 · 분기 자동 업데이트)
 pipeline/           정리·탐지·검증·요약·페이지 생성 스크립트
 site/template.html  화면 템플릿
 ```

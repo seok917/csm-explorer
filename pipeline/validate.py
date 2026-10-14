@@ -2,7 +2,9 @@
 2단계: 자동 검증 엔진 — 규칙 6개를 회사·연도마다 실행하고 결과를 checks.csv로 저장
 상태: 통과 / 주의(사람 확인 필요) / 불일치 / 자료없음
 """
-import pandas as pd, numpy as np, os, time
+import pandas as pd, numpy as np, os, sys, time
+sys.path.insert(0, os.path.dirname(__file__))
+from periods import prev_year_end, sort_labels
 D = os.path.join(os.path.dirname(__file__), '..', 'data')
 t0 = time.perf_counter()
 mv = pd.read_csv(f'{D}/movement.csv', dtype={'year': str})
@@ -10,7 +12,7 @@ fz = pd.read_csv(f'{D}/fisis.csv', dtype={'year': str})
 lr = pd.read_csv(f'{D}/lossratio.csv')
 pc = pd.read_csv(f'{D}/pf_check.csv', dtype={'rep': str})
 ns = pd.read_csv(f'{D}/note_signals.csv', dtype={'report': str})
-ORDER = ['2023', '2024', '2025', '2026 상반기']
+ORDER = sort_labels(mv.year)                      # 기간 목록은 데이터에서 (새 분기 공시가 추가되면 자동 확장)
 TOL = lambda x: max(1.0, abs(x) * 0.001)          # 허용오차: 1억 원 또는 0.1% 중 큰 값
 out = []
 def add(co, y, rule, status, detail): out.append(dict(company=co, year=y, rule=rule, status=status, detail=detail))
@@ -33,8 +35,7 @@ for _, r in mv.iterrows():
     else:
         add(co, y, 'R2 금감원 잔액 대조', '자료없음', 'FISIS 잔액 미게시 또는 미수집')
     # R3 연속성: 당기 기초 = 전기 기말
-    i = ORDER.index(y)
-    prev = mv[(mv.company == co) & (mv.year == ORDER[i - 1])] if i > 0 else pd.DataFrame()
+    prev = mv[(mv.company == co) & (mv.year == prev_year_end(y))]   # 반기·분기도 기초 = 전년 연말
     if len(prev):
         d = r.open - prev.close.iloc[0]
         add(co, y, 'R3 기초=전기 기말', '통과' if abs(d) <= TOL(r.open) else '불일치',
@@ -56,7 +57,7 @@ for _, r in t.dropna(subset=['B1_chg']).iterrows():
     st = '주의' if abs(r.B1_chg) >= 50 else '통과'
     add(r.company, str(int(r.year)), 'R5 급변 탐지(위험보험료)', st, f'1년차 위험보험료 전년 대비 {r.B1_chg:+.0f}%')
 mv['offset'] = -mv.adjust / mv.new
-for y, g in mv[mv.year.isin(ORDER[:3])].groupby('year'):
+for y, g in mv[mv.year.isin([o for o in ORDER if len(o) == 4])].groupby('year'):   # 업계 분포는 연간 기간끼리
     med = g.offset.median(); mad = (g.offset - med).abs().median() * 1.4826
     for _, r in g.iterrows():
         z = (r.offset - med) / mad if mad > 0 else 0

@@ -20,6 +20,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(__file__))
 from build_data import SHORT
+from periods import label, report_period, order_key, prev_year_end
 
 DUMP = os.environ.get('CSM_DUMP', 'output/all_tables')
 D = os.path.join(os.path.dirname(__file__), '..', 'data')
@@ -308,6 +309,25 @@ def snapshot():
     print('스냅숏 저장:', SNAP, f'{os.path.getsize(SNAP) / 1e6:.1f}MB')
 
 
+def extract_one(R, cache, co, y, t_open, t_close):
+    """회사·기간 하나: 해당 보고서의 후보 표 중 기준 잔액(백만원)에 맞는 조합 → 결과 행"""
+    order = [report_period(y)] if len(y) > 4 else [f'{y}.12', f'{int(y) + 1}.12']   # 연간은 당해 보고서, 없으면 다음 해 보고서의 전기 비교
+    for rep in order:
+        if (co, rep) not in R:
+            continue
+        if rep not in cache.setdefault(co, {}):
+            cache[co][rep] = candidates(R[(co, rep)])
+        res = choose(cache[co][rep], t_open, t_close)
+        if res:
+            if res['close_post'] is None:
+                res = post_split(cache[co][rep], res)
+            res = fill_residual(res)
+            row = dict(company=co, year=y, report=rep)
+            row.update({k: (round(v / 100, 1) if isinstance(v, float) and k not in ('scale', 'tol') else v) for k, v in res.items()})
+            return row
+    return dict(company=co, year=y, report=None)
+
+
 def main():
     if '--snapshot' in sys.argv:
         return snapshot()
@@ -316,39 +336,35 @@ def main():
         print('원문 표(CSM_DUMP 또는 raw/csm_tables.csv.gz)가 없어 추출을 건너뜁니다 (기존 movement.csv 유지).')
         return
     fz = pd.read_csv(f'{D}/fisis.csv', dtype={'year': str})
-    cache, rows = {}, []
-    for r in fz.itertuples():
-        t_open = r.fisis_open * 100 if pd.notna(r.fisis_open) else None      # 억 → 백만원
-        t_close = r.fisis_close * 100 if pd.notna(r.fisis_close) else None
-        if r.year.endswith('상반기'):
-            order = [f'{r.year[:4]}.06']
-        else:
-            order = [f'{r.year}.12', f'{int(r.year) + 1}.12']                # 당해 보고서, 없으면 다음 해 보고서의 전기 비교
-        res, used = None, None
-        for rep in order:
-            if (r.company, rep) not in R:
-                continue
-            if rep not in cache.setdefault(r.company, {}):
-                cache[r.company][rep] = candidates(R[(r.company, rep)])
-            res = choose(cache[r.company][rep], t_open, t_close)
-            if res:
-                used = rep
-                if res['close_post'] is None:
-                    res = post_split(cache[r.company][rep], res)
-                res = fill_residual(res)
-                break
-        row = dict(company=r.company, year=r.year, report=used)
-        if res:
-            row.update({k: (round(v / 100, 1) if isinstance(v, float) and k not in ('scale', 'tol') else v) for k, v in res.items()})
-        rows.append(row)
+    cache = {}
+    m100 = lambda v: None if v is None or pd.isna(v) else v * 100                     # 억 → 백만원
+    # 1) 금감원 잔액이 있는 회사·기간: 기초·기말을 금감원 값에 맞춰 표 선택
+    rows = [extract_one(R, cache, r.company, r.year, m100(r.fisis_open), m100(r.fisis_close)) for r in fz.itertuples()]
     auto = pd.DataFrame(rows)
-    auto.to_csv(f'{D}/movement_auto.csv', index=False, encoding='utf-8-sig')
     rep = compare(auto)
     final = assemble(auto)
+    # 2) 그 뒤에 새로 나온 공시(분기 자동 업데이트로 받은 보고서): 금감원 값이 아직 없으므로
+    #    기초를 '전년 연말 최종 기말(이미 검증된 값)'에 맞춰 표 선택
+    latest = max(order_key(y) for y in fz.year)
+    known = set(zip(fz.company, fz.year))
+    new = sorted({(co, label(p)) for co, p in R if order_key(label(p)) > latest and (co, label(p)) not in known},
+                 key=lambda k: (k[0], order_key(k[1])))
+    if new:
+        closes = {(r.company, r.year): r.close for r in final.itertuples()}
+        extra = []
+        for co, y in new:
+            row = extract_one(R, cache, co, y, m100(closes.get((co, prev_year_end(y)))), None)
+            extra.append(row)
+            if row.get('close') is not None:
+                closes[(co, y)] = row['close']
+        print('새 공시에서 추가한 기간:', ', '.join(f"{r['company']} {r['year']}" + ('' if r.get('tables') else '(실패)') for r in extra))
+        auto = pd.concat([auto, pd.DataFrame(extra)], ignore_index=True)
+        final = assemble(auto)
+    auto.to_csv(f'{D}/movement_auto.csv', index=False, encoding='utf-8-sig')
     final.to_csv(f'{D}/movement.csv', index=False, encoding='utf-8-sig')
     print(f"자동 추출 {auto.tables.notna().sum()}/{len(auto)}건 | 수작업 판독값과 일치 {(rep.status == '일치').sum()}건 · "
           f"자동이 새로 찾은 값만 다름 {(rep.status == '일치(추가값)').sum()}건 · 차이 {(rep.status == '차이').sum()}건 · 실패 {(rep.status == '자동추출 실패').sum()}건 "
-          f"| 보정 적용 {final.source.str.contains('보정').sum()}건")
+          f"| 보정 적용 {final.source.str.contains('보정|수작업').sum()}건")
 
 
 def assemble(auto):

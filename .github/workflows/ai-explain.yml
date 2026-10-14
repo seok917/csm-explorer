@@ -19,7 +19,7 @@ permissions:
   contents: write
   pages: write
 concurrency:
-  group: ai-explain
+  group: csm-write
   cancel-in-progress: false
 jobs:
   explain:

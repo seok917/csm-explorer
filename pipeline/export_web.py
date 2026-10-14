@@ -15,7 +15,8 @@ ck = pd.read_csv(f'{D}/checks.csv', dtype={'year': str}).fillna({'decision': '',
 fx = pd.read_csv(f'{D}/fix_log.csv')
 AI = json.load(open(f'{D}/ai_explanations.json', encoding='utf-8')) if os.path.exists(f'{D}/ai_explanations.json') else {}
 ns = pd.read_csv(f'{D}/note_signals.csv', dtype={'report': str})
-YEARS = ['2023', '2024', '2025', '2026 상반기']
+from periods import sort_labels
+YEARS = sort_labels(mv.year)          # 기간 목록은 데이터에서 (새 분기 공시가 추가되면 자동 확장)
 ALIAS = {'신한라이프': ['신한', 'shinhan'], 'NH농협생명': ['농협', 'nh'], 'KB라이프': ['kb', '국민', '케이비'], 'iM라이프': ['im', '아이엠', 'dgb'],
          'KDB생명': ['kdb', '산은'], 'ABL생명': ['abl'], 'AIA생명': ['aia'], 'DB생명': ['db', '동부'], 'IBK연금': ['ibk', '기업은행'],
          'BNP카디프생명': ['bnp', '카디프'], '교보라이프플래닛': ['라이프플래닛', '교보라플'], '푸본현대생명': ['푸본', '현대라이프'],
@@ -38,7 +39,6 @@ med = mv.groupby('year').offset.median()
 
 def summary(r):
     y = r.year; s = []; extra = {'%': [], '개수': []}
-    per = '상반기' if '상반기' in y else '연간'
     d = r.close - r.open
     s.append(f"{y} {r.company}의 CSM은 기초 {won(r.open)}에서 기말 {won(r.close)}으로 {won(abs(d))} {'늘었' if d >= 0 else '줄었'}습니다(순증률 {r.growth:+.1%}).")
     s.append(f"신계약으로 {won(r.new)}이 쌓였고, 상각 {won(r.release)}과 이자부리 {won(r.interest)}이 반영됐습니다.")

@@ -2,7 +2,7 @@
 실행 시간을 단계별로 기록 (자소서·면접용 실측값)"""
 import subprocess, time, sys, os
 H = os.path.dirname(os.path.abspath(__file__))
-steps = [('1 데이터 정리', 'build_data.py'), ('2 원문 표 → CSM 변동표 추출', 'extract_movement.py'),
+steps = [('0 DART 새 공시 수집(키 있을 때만)', 'collect_dart.py'), ('1 데이터 정리', 'build_data.py'), ('2 원문 표 → CSM 변동표 추출', 'extract_movement.py'),
          ('2b 원문 신호 탐지(109개 보고서)', 'scan_notes.py'),
          ('3 자동 검증(규칙 6개)', 'validate.py'), ('4 지표·요약 문장 생성', 'export_web.py'),
          ('5 AI 설명+숫자 대조(키 있을 때만)', 'ai_explain.py'), ('6 AI 결과 반영', 'export_web.py'), ('7 웹페이지 생성', 'build_site.py')]
