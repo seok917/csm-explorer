@@ -4,7 +4,7 @@
 2) 데이터·검증 결과의 무결성
 3) 과거에 발견한 오류가 다시 생기지 않는지(회귀 테스트)
 4) 원문 표 자동 추출: 추출률, 수작업 판독값과의 차이 해명, 보정 사유, 스냅숏 재현
-5) AI 설명 모듈의 재시도·반려 흐름 (실제 API 대신 가짜 응답으로)
+5) AI 설명 모듈의 재시도·반려 흐름, 표현 가드레일 (실제 API 대신 가짜 응답으로)
 """
 import json, os, sys, shutil, tempfile, csv
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
@@ -178,6 +178,24 @@ def test_ai_rejected_when_still_wrong():
         ai_explain.main()
         out = json.load(open(os.path.join(tmp, 'ai_explanations.json'), encoding='utf-8'))['신한라이프|2025']
         assert out['status'] == 'rejected', out
+    finally:
+        os.environ.pop('ANTHROPIC_API_KEY', None); shutil.rmtree(tmp)
+
+
+def test_ai_style_guard_retry():           # 숫자는 맞아도 원인 추정·평가어('손실', '때문')는 다시 쓰게 함
+    import importlib, ai_explain
+    importlib.reload(ai_explain)
+    tmp = tempfile.mkdtemp()
+    try:
+        json.dump({'companies': [dict(CO['신한라이프'], years={'2025': SH25})]},
+                  open(os.path.join(tmp, 'web.json'), 'w', encoding='utf-8'), ensure_ascii=False)
+        answers = iter(['조정 추정치 변동 −8,470억 원은 해지율 손실 때문입니다.',
+                        '조정 추정치 변동은 −8,470억 원으로 CSM을 줄였습니다.'])
+        ai_explain.D, ai_explain.call = tmp, (lambda msgs, key: next(answers))
+        os.environ['ANTHROPIC_API_KEY'] = 'test-key'
+        ai_explain.main()
+        out = json.load(open(os.path.join(tmp, 'ai_explanations.json'), encoding='utf-8'))['신한라이프|2025']
+        assert out['status'] == 'fixed' and out['first_try']['style'] == ['때문', '손실'], out
     finally:
         os.environ.pop('ANTHROPIC_API_KEY', None); shutil.rmtree(tmp)
 

@@ -32,13 +32,13 @@
 ```bash
 python pipeline/run_all.py                           # 전체 실행
 ANTHROPIC_API_KEY=sk-... python pipeline/run_all.py  # AI 설명까지 (키는 코드·저장소에 넣지 말 것)
-python tests/test_pipeline.py                        # 자동 테스트 21개
+python tests/test_pipeline.py                        # 자동 테스트 22개
 ```
 
 ## 자동 실행 (GitHub Actions)
 | 작업 | 언제 | 내용 |
 |---|---|---|
-| `테스트` (`.github/workflows/tests.yml`) | 저장소에 올라올 때마다 | 자동 테스트 21개 실행, 결과는 위 배지에 표시 |
+| `테스트` (`.github/workflows/tests.yml`) | 저장소에 올라올 때마다 | 자동 테스트 22개 실행, 결과는 위 배지에 표시 |
 | `AI 설명 생성` (`.github/workflows/ai-explain.yml`) | 변동표·AI 모듈이 바뀔 때, 또는 수동 실행 | AI 설명 생성 → 숫자 가드레일 대조 → 결과 커밋 → 사이트 갱신. 자료가 같은 회사·연도는 다시 부르지 않음 |
 
 API 키는 코드에 넣지 않고 저장소 Settings → Secrets and variables → Actions의 `ANTHROPIC_API_KEY`로만 읽습니다.
@@ -90,7 +90,7 @@ API 키는 코드에 넣지 않고 저장소 Settings → Secrets and variables 
 | 원문 재추출 | KB라이프·iM라이프·처브라이프 2025 수작업 값에 유배당 표 누락. R2·R3 불일치를 '사후 수정'으로 잘못 설명한 검토 기록 6건도 발견 | 유배당 + 유배당 외 합산으로 교체, 틀린 검토 기록 삭제 |
 | 원문 재추출 | 수작업 때 상각·이자부리 행을 못 찾아 잔차로 채운 7건은 항등식 검증 불가 | 회사별 행 이름을 인식해 원문 값으로 대체 (자료 없음 → 통과) |
 
-## 자동 테스트 (`tests/test_pipeline.py`, 21개)
+## 자동 테스트 (`tests/test_pipeline.py`, 22개)
 숫자 가드레일(단위 환산·틀린 숫자·부호·반올림), 데이터 무결성(22개사, 모든 요약 대조 통과, 걸린 항목 전부 검토 기록),
 회귀 테스트(위 오류들이 다시 생기지 않는지), 원문 자동 추출(추출률, 수작업과 다른 건은 보정 사유가 있거나 금감원 잔액·전기 기말과 맞는지,
 순부채 행 우선, 유배당 표 포함, 스냅숏만으로 재현), AI 모듈의 재시도·반려 흐름(가짜 응답으로 검증).
