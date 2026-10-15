@@ -22,6 +22,19 @@ COLS = ['co', 'period', 'rcept_no', 'doc', 'table_no', 'kind', 'ctx', 'row', 'co
 BUCKET = re.compile(r'1\s*년\s*(이내|이하|미만)|10\s*년\s*(초과|이상|이후)|5\s*년\s*(초과|이내|이하)')
 
 
+def before(nd, n=160):
+    """표 바로 앞의 글(표 제외) 끝 n자 — 앞 형제 → 부모의 앞 형제 순으로 거슬러 올라가며 모음(빠름)"""
+    parts, cur, hops = [], nd, 0
+    while cur is not None and sum(map(len, parts)) < n and hops < 12:
+        prev = cur.getprevious()
+        while prev is not None and sum(map(len, parts)) < n:
+            if prev.tag != 'table' and not prev.xpath('.//table'):
+                parts.insert(0, ' '.join(prev.text_content().split()))
+            prev = prev.getprevious(); hops += 1
+        cur = cur.getparent()
+    return ' '.join(' '.join(parts).split())[-n:]
+
+
 def tables_ctx(zbytes):
     """원문 zip → [(문서, 표번호, 표 앞 문장 120자, 행, 열, 값)] — collect_dart.tables_of와 같은 번호 규칙에 표 앞 문맥을 더함
     (상각 예정표는 '보험계약마진'이 표 안이 아니라 표 위 제목에만 있는 경우가 많음)"""
@@ -35,8 +48,7 @@ def tables_ctx(zbytes):
             continue
         for nd in doc.xpath('//table[not(ancestor::table)]'):
             tno += 1
-            ctx = ' '.join(' '.join(t.split()) for t in nd.xpath('preceding::text()[not(ancestor::table)][position()<=12]'))
-            ctx = ' '.join(ctx.split())[-120:]
+            ctx = before(nd)
             for r, tr in enumerate(nd.xpath('.//tr'), 1):
                 for c, td in enumerate(tr.xpath('./*'), 1):
                     out.append((name, tno, ctx, r, c, ' '.join(td.text_content().split())))
@@ -99,7 +111,9 @@ def main():
         cnt = df.groupby('kind')[['doc', 'table_no']].apply(lambda d: len(d.drop_duplicates())).to_dict() if len(df) else {}
         print(f"{f['co']} {f['period']}: {cnt}")
         out.append(df); n += 1
-        time.sleep(0.7)
+        if n % 10 == 0:                               # 중간 저장(시간 초과에 대비)
+            pd.concat(out, ignore_index=True).to_csv(OUT, index=False, encoding='utf-8', compression='gzip')
+        time.sleep(0.5)
     res = pd.concat(out, ignore_index=True)
     res.to_csv(OUT, index=False, encoding='utf-8', compression='gzip')
     note(f'보강 수집: 보고서 {n}건 새로 처리, 표 {res.groupby(["rcept_no", "doc", "table_no"]).ngroups:,}개 · '

@@ -29,6 +29,8 @@ jobs:
       - run: pip install -r requirements.txt
       - name: 원문 재수집 → 추가 표 저장
         if: ${{ !inputs.skip_dart }}
+        timeout-minutes: 70
+        continue-on-error: true            # 시간이 모자라도 중간 저장분은 커밋 → 다시 실행하면 이어서 받음
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY || secrets.DART_KEY }}
           ONLY: ${{ inputs.only }}
