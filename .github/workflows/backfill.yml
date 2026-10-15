@@ -1,4 +1,6 @@
-# 보강 수집: 이미 받은 보고서 원문에서 CSM 상각 예정표·조정 분해·지급여력·영업지표 표를 추가로 모음 (수동 실행)
+# 보강 수집 (수동 실행)
+# 1) DART: 이미 받은 보고서 원문에서 CSM 상각 예정표·조정 분해·지급여력·영업지표 표를 추가로 모음
+# 2) FISIS: 지급여력·유지율·신계약·수입보험료 통계 (FISIS_API_KEY가 있을 때만)
 name: 보강 수집
 on:
   workflow_dispatch:
@@ -6,6 +8,10 @@ on:
       only:
         description: '한 회사만 시험할 때 회사명 (비우면 전체)'
         default: ''
+      skip_dart:
+        description: 'DART 재수집은 건너뛰고 FISIS만'
+        type: boolean
+        default: false
 permissions:
   contents: write
 concurrency:
@@ -22,17 +28,23 @@ jobs:
           python-version: '3.12'
       - run: pip install -r requirements.txt
       - name: 원문 재수집 → 추가 표 저장
+        if: ${{ !inputs.skip_dart }}
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY || secrets.DART_KEY }}
           ONLY: ${{ inputs.only }}
         run: |
           if [ -n "$ONLY" ]; then python pipeline/collect_extra.py --only "$ONLY"; else python pipeline/collect_extra.py; fi
+      - name: FISIS 통계 수집
+        continue-on-error: true
+        env:
+          FISIS_API_KEY: ${{ secrets.FISIS_API_KEY || secrets.FISIS_KEY }}
+        run: python pipeline/collect_fisis.py
       - name: 결과 커밋
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
-          git add raw/extra_tables.csv.gz
+          git add raw/
           if git diff --cached --quiet; then echo "변경 없음"; exit 0; fi
-          git commit -m "보강 수집: 상각 예정표·조정·지급여력·영업지표 표 (GitHub Actions)"
+          git commit -m "보강 수집: DART 추가 표·FISIS 통계 (GitHub Actions)"
           git pull --rebase
           git push
