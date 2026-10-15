@@ -310,6 +310,39 @@ def test_schedule_summary_is_consistent():
     assert all(1 < v < 3 for v in j['bt_median'].values())   # 실제 상각 > 예정 1년 이내(신계약·이자부리 추가)
 
 
+# ---------- 7. 가정 민감도 ----------
+def _sens():
+    import pandas as pd
+    p = os.path.join(D, 'sensitivity.csv')
+    return pd.read_csv(p, dtype={'asof': str, 'report': str}) if os.path.exists(p) else None
+
+
+def test_sensitivity_hand_checked_shinhan_2025():
+    """원문 손계산: 무배당 7,199,651→6,475,155, 유배당 130,865→130,294, 변액 223,218→190,331 (백만원) → 합 −757,954 = −7,579.5억"""
+    s = _sens()
+    if s is None:
+        return
+    r = s[(s.company == '신한라이프') & (s['asof'] == '2025.12') & (s.report == '2025.12')].iloc[0]   # .asof는 pandas 메서드
+    assert abs(r.d_lapse_up + 7579.5) < 0.6 and abs(r.base - 75537.3) < 0.6, (r.d_lapse_up, r.base)
+
+
+def test_sensitivity_sanity():
+    s = _sens()
+    if s is None:
+        return
+    for r in s.itertuples():
+        assert 0.85 <= r.base / r.close <= 1.15, (r.company, r.asof, r.base, r.close)       # 그 회사 기말 CSM과 맞는 표만
+        ps = [getattr(r, c) for c in s.columns if c.startswith('p_') and pd_notna(getattr(r, c))]
+        assert all(abs(v) < 0.6 for v in ps), (r.company, r.asof)
+        if pd_notna(r.p_lapse_dn):
+            assert r.p_lapse_up * r.p_lapse_dn < 0, (r.company, r.asof)                     # 해지율 상승·하락은 반대 방향
+
+
+def pd_notna(v):
+    import pandas as pd
+    return pd.notna(v)
+
+
 if __name__ == '__main__':
     tests = [v for k, v in dict(globals()).items() if k.startswith('test_')]
     fail = 0

@@ -18,6 +18,7 @@ ns = pd.read_csv(f'{D}/note_signals.csv', dtype={'report': str})
 # 상각 예정표(있을 때만) · FISIS 지표(있을 때만)
 SCH = pd.read_csv(f'{D}/schedule.csv', dtype={'asof': str, 'report': str}) if os.path.exists(f'{D}/schedule.csv') else None
 SEV = pd.read_csv(f'{D}/schedule_eval.csv', dtype={'asof': str, 'report': str}) if os.path.exists(f'{D}/schedule_eval.csv') else None
+SEN = pd.read_csv(f'{D}/sensitivity.csv', dtype={'asof': str, 'report': str}) if os.path.exists(f'{D}/sensitivity.csv') else None
 FIS = pd.read_csv(f'{D}/fisis_metrics.csv', dtype={'year': str}) if os.path.exists(f'{D}/fisis_metrics.csv') else None
 STD_LB = ['1년 이내', '1~2년', '2~5년', '5~10년', '10년 초과']
 from periods import sort_labels
@@ -100,6 +101,23 @@ def sched_of(co):
     return out
 
 
+SENS_K = ['mort', 'morb', 'indem', 'lapse_up', 'lapse_dn', 'exp']
+
+
+def sens_of(co):
+    """가정 민감도: 기준일별(그 시점 보고서 값 우선) 충격별 CSM 변화율·금액·충격 크기"""
+    if SEN is None:
+        return []
+    f = SEN[SEN.company == co].sort_values(['asof', 'vintage'])          # '당시'가 '재공시'보다 앞
+    out = []
+    for a, g in f.groupby('asof'):
+        r = g.iloc[0]
+        nn = lambda k: None if k not in r or pd.isna(r[k]) else float(r[k])
+        out.append(dict(asof=a, report=r['report'], base=float(r['base']), close=float(r['close']), source=r['source'],
+                        p={k: nn('p_' + k) for k in SENS_K}, d={k: nn('d_' + k) for k in SENS_K}, sz={k: nn('sz_' + k) for k in SENS_K}))
+    return out
+
+
 def fisis_of(co):
     if FIS is None:
         return {}
@@ -146,7 +164,7 @@ for co, g in mv.groupby('company'):
                         rPV=None if pd.isna(x.rPV) else round(x.rPV, 2)) for x in l.itertuples()],
         checks=[dict(year=x.year, rule=x.rule, status=x.status, detail=x.detail, decision=x.decision, note=x.note) for x in c.itertuples()],
         notes=[dict(report=x.report, kind=x.kind, text=x.text.strip()) for x in n.itertuples()],
-        schedule=sched_of(co), fisis=fisis_of(co)))
+        schedule=sched_of(co), fisis=fisis_of(co), sens=sens_of(co)))
 data['companies'].sort(key=lambda d: -(d['years'].get('2025') or d['years'].get('2024'))['close'])
 data['fixes'] = fx.to_dict('records')
 # 원문 표 자동 추출 결과 (자동 vs 수작업 판독값)
@@ -171,6 +189,10 @@ if os.path.exists(f'{D}/extract_report.csv'):
                            match=int(ex.status.isin(['일치', '일치(추가값)']).sum()), extra=int((ex.status == '일치(추가값)').sum()),
                            corrected=sum(c['verdict'] == '자동값 채택' for c in cases), overridden=int(len(ov)),
                            cases=sorted(cases, key=lambda c: c['verdict'] != '자동값 채택'))
+if SEN is not None:                                  # 충격별 업계 중앙값(기준일별, 그 시점 보고서 값)
+    L = SEN[SEN.vintage == '당시']
+    data['sens_median'] = {a: {k: (None if g['p_' + k].isna().all() else round(float(g['p_' + k].median()), 4)) for k in SENS_K if 'p_' + k in g}
+                           | {'n': int(len(g))} for a, g in L.groupby('asof')}
 if os.path.exists(f'{D}/schedule_summary.json'):
     data['schedule_eval'] = json.load(open(f'{D}/schedule_summary.json', encoding='utf-8'))
 data['ai_stats'] = {k: sum(1 for v in AI.values() if v['status'] == k) for k in ('ok', 'fixed', 'rejected')}

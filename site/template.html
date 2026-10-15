@@ -203,6 +203,13 @@ footer{margin-top:28px;font-size:12px;color:var(--muted);border-top:1px solid va
     </div>
   </section>
 
+  <section class="panel" style="margin-top:16px" id="sensPanel">
+    <h2>가정 민감도 <small id="sensSub">가정이 표준 충격만큼 나빠지면 CSM(미래 이익)이 얼마나 변하나</small></h2>
+    <div class="chart" id="sens"></div>
+    <div class="lg"><span><i style="background:var(--neg)"></i>CSM 감소</span><span><i style="background:var(--pos)"></i>CSM 증가</span><span><i style="background:var(--ink);width:2px;height:12px"></i>업계 중앙값</span></div>
+    <p class="note" id="sensNote" style="font-size:12px;color:var(--muted);margin:8px 0 0;line-height:1.6"></p>
+  </section>
+
   <section class="panel" style="margin-top:16px">
     <h2>업계 비교 <span class="metricsel" id="metricSel" role="group" aria-label="비교 지표"></span></h2>
     <div class="chart" id="ind"></div>
@@ -354,6 +361,8 @@ const METRICS={close:['기말 CSM',r=>r.close,v=>won(v)],new:['신계약 CSM',r=
   release_rate:['상각률',r=>r.release_rate,v=>pct(v,1)],replace:['신계약 대체율',r=>r.replace,v=>v==null?'–':v.toFixed(2)+'배'],
   s10p:['10년 넘어 인식될 비중',(r,c,y)=>{const s=schedAt(c,y); return s? s.s10p : null;},v=>pct(v)],
   kics:['지급여력비율(K-ICS)',(r,c,y)=>(c.fisis&&c.fisis[y]&&c.fisis[y].kics)||null,v=>v.toFixed(0)+'%'],
+  sens_lapse:['해지율 상승 시 CSM 변화',(r,c,y)=>{const a=(y.includes('상반기')?y.slice(0,4)+'.06':y+'.12'); const t=(c.sens||[]).find(s=>s.asof===a); return t&&t.p.lapse_up!=null? t.p.lapse_up : null;},v=>pct(v,1)],
+  sens_morb:['장해·질병 상승 시 CSM 변화',(r,c,y)=>{const a=(y.includes('상반기')?y.slice(0,4)+'.06':y+'.12'); const t=(c.sens||[]).find(s=>s.asof===a); return t&&t.p.morb!=null? t.p.morb : null;},v=>pct(v,1)],
   p25:['25회차 유지율',(r,c,y)=>(c.fisis&&c.fisis[y]&&c.fisis[y].p25)||null,v=>v.toFixed(1)+'%']};
 $('metricSel').innerHTML=Object.entries(METRICS).map(([k,[n]])=>`<button type="button" data-m="${k}">${n}</button>`).join('');
 $('metricSel').addEventListener('click',e=>{const b=e.target.closest('button'); if(b){cur.metric=b.dataset.m; render(); save();}});
@@ -404,7 +413,7 @@ function render(){
    ${row('연말 1년차 예상손해율 · 합계',y=>fmtp(lrBy('합계',y)?.r1))}${row('연말 1년차 예상손해율 · 건강',y=>fmtp(lrBy('건강',y)?.r1))}
    ${row('연말 현재가치 예상손해율 · 합계',y=>fmtp(lrBy('합계',y)?.rPV))}</tbody></table>
    <p style="font-size:12px;color:var(--muted);margin:8px 0 0">예실차 = 예상 − 실제(음수면 실제 보험금이 예상보다 많음). 연말 예상손해율은 「위험보험료 대비 예상보험금」 주석 기준으로, 예실차 표와 분모가 달라 수준이 아닌 연도 간 변화로 봐야 합니다.</p>`;
-  renderCap(c, r);
+  renderCap(c, r); renderSens(c);
   // 업계
   const [mn,get,fmt]=METRICS[cur.metric];
   const items=C.filter(x=>x.years[cur.year]&&get(x.years[cur.year],x,cur.year)!=null).map(x=>({k:x.name,v:get(x.years[cur.year],x,cur.year),hl:x.name===c.name})).sort((a,b)=>b.v-a.v);
@@ -476,6 +485,31 @@ function renderCap(c, r){
   $('capTbl').innerHTML=h+'</tbody></table>';
   const hasF=Object.keys(F).length>0;
   $('capNote').innerHTML=(hasF?'<b>신계약 CSM 배수</b>는 보장성 상품을 팔 때 첫 회 보험료 1원당 미래 이익을 얼마나 쌓았는지(신계약 수익성)를 봅니다. 초회보험료에 일시납이 섞이거나 변액종신처럼 특별계정에 잡히면 회사마다 왜곡되므로 같은 회사의 추이로 보세요. 유지율이 오르면 해지율 가정이 덜 나빠져 CSM 조정에도 유리합니다. ':'')+'상각률이 높을수록 CSM이 빨리 이익으로 풀리고(보장 기간이 짧은 상품 비중이 큼), 대체율이 1배를 넘으면 풀린 이익보다 신계약으로 더 많이 채운 해입니다. 반기 값은 반기 누적이라 연간과 직접 비교하지 않습니다. 조정의 가정 변경·경험 차이는 금액 단위 억 원.';
+}
+
+
+/* ---------- 가정 민감도 ---------- */
+const SK=[['mort','사망률 상승'],['morb','장해·질병(정액) 상승'],['indem','실손 상승'],['lapse_up','해지율 상승'],['lapse_dn','해지율 하락'],['exp','사업비 상승']];
+function renderSens(c){
+  const host=$('sens'); host.innerHTML=''; const L=c.sens||[];
+  if(!L.length){ host.innerHTML='<div class="empty">이 회사의 민감도 표를 원문에서 읽지 못했습니다(표 형식이 달라 자동 추출 대상에서 빠짐).</div>'; $('sensNote').textContent=''; return; }
+  const want=(cur.year.includes('상반기')?cur.year.slice(0,4)+'.06':cur.year+'.12');
+  const t=L.find(s=>s.asof===want)||L[L.length-1]; const M=(D.sens_median||{})[t.asof]||{};
+  const items=SK.filter(([k])=>t.p[k]!=null).map(([k,n])=>({k,n:`${n} ${t.sz[k]!=null?t.sz[k]+(k==='exp'||k==='mort'||k==='morb'||k==='indem'||k.startsWith('lapse')?'%':''):''}`,v:t.p[k],d:t.d[k],m:M[k]}));
+  const W=Math.max(300,host.clientWidth||620), rowH=30, Lw=Math.min(170,W*.36), R=W<480?56:156, T=6, H=T+rowH*items.length+20; const sv=svg(W,H); host.appendChild(sv);
+  const ext=Math.max(0.05,...items.map(i=>Math.abs(i.v)),...items.map(i=>Math.abs(i.m||0)))*1.1;
+  const x=v=>Lw+(W-Lw-R)*(v+ext)/(2*ext);
+  [-ext,0,ext].forEach(tk=>{ const tv=Math.round(tk*100); el('text',{x:x(tk),y:H-4,'text-anchor':'middle','font-size':10.5,fill:css('--muted'),'font-family':css('--f-num')},sv,(tv>0?'+':'')+tv+'%'); });
+  el('line',{x1:x(0),x2:x(0),y1:T,y2:H-18,stroke:css('--muted')},sv);
+  items.forEach((i,j)=>{ const yy=T+j*rowH; const a=x(Math.min(0,i.v)), b=x(Math.max(0,i.v));
+    el('text',{x:Lw-8,y:yy+rowH/2+4,'text-anchor':'end','font-size':W<480?11:12,fill:css('--ink')},sv, W<480? i.n.replace('장해·질병(정액)','질병').replace(/ [\d.]+%$/,'') : i.n);
+    const g=el('g',{},sv); el('title',{},g,`${i.n}: CSM ${pct(i.v,1)} (${won(i.d)} 원)${i.m!=null?` · 업계 중앙 ${pct(i.m,1)}`:''}`);
+    el('rect',{x:a,y:yy+7,width:Math.max(1.5,b-a),height:rowH-14,rx:3,fill:i.v<0?css('--neg'):css('--pos')},g);
+    if(i.m!=null) el('line',{x1:x(i.m),x2:x(i.m),y1:yy+3,y2:yy+rowH-3,stroke:css('--ink'),'stroke-width':2},g);
+    el('text',{x:W-R+8,y:yy+rowH/2+4,'font-size':11.5,fill:css('--ink'),'font-family':css('--f-num')},sv,`${pct(i.v,1)}`+(W<480?'':` · ${won(i.d)}`)); });
+  $('sensSub').textContent=`${t.asof} 기준 · 기준 CSM ${won(t.base)} 원 · 업계 중앙값은 같은 시점 ${M.n||0}개사`;
+  const top=items.filter(i=>i.k!=='lapse_dn').sort((p,q)=>p.v-q.v)[0];
+  $('sensNote').innerHTML=`가장 민감한 가정은 <b>${esc(top.n.split(' ').slice(0,-1).join(' ')||top.n)}</b>(CSM ${pct(top.v,1)})입니다. 충격 크기(사망률 3.27%, 해지율 ±9.16% 등)는 회사들이 공통으로 쓰는 표준 충격이라 회사끼리 비교할 수 있습니다. 재보험 전 기준, 세전. 자료: ${esc(t.source)}. 포트폴리오로 나뉜 표는 합산했습니다.`;
 }
 
 /* ---------- 검증 현황 ---------- */

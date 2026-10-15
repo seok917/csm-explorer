@@ -57,6 +57,7 @@ jobs:
           python pipeline/extract_movement.py
           python pipeline/extract_schedule.py
           python pipeline/build_fisis.py
+          python pipeline/extract_sensitivity.py
           python pipeline/validate.py
           python pipeline/export_web.py
       - if: steps.go.outputs.run == 'true'
