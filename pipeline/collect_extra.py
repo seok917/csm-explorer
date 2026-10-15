@@ -2,6 +2,7 @@
 보강 수집: 이미 받은 보고서(raw/filings.csv)의 원문을 다시 받아, 변동표 외에 분석에 쓸 표를 추가로 모음
 - 대상 표(표 전체 글자 기준)
   schedule : '보험계약마진' + 기간 구간('1년 이내/이하', '10년 초과' 등) → CSM 상각(인식) 예정표
+  bucket   : 그 밖에 '○년'이 3번 이상 나오는 보험 관련 표 → 머리글 형식이 다른 예정표 후보(합계가 기말 CSM과 맞는지로 판별)
   csm      : '보험계약마진'이 있는 나머지 표 → 조정 항목 분해 등
   kics     : '지급여력' 또는 'K-ICS' → 지급여력비율
   biz      : '유지율' 또는 '초회보험료'/'신계약' 실적 → 영업 지표
@@ -42,9 +43,14 @@ def tables_ctx(zbytes):
     return out
 
 
+YEARS = re.compile(r'\d+\s*년')
+
+
 def kind_of(txt, ctx=''):
     if BUCKET.search(txt) and ('보험계약마진' in txt or '보험계약마진' in ctx):
         return 'schedule'
+    if len(YEARS.findall(txt)) >= 3 and ('보험' in txt or '보험' in ctx):
+        return 'bucket'                               # 연도 구간 표(머리글 형식이 다른 상각 예정표 후보) — 합계로 판별
     if '보험계약마진' in txt:
         return 'csm'
     if '지급여력' in txt or 'K-ICS' in txt.upper():
