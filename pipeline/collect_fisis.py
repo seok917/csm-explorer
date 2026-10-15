@@ -17,11 +17,11 @@ API = 'https://fisis.fss.or.kr/openapi'
 LISTS = {'SH021': '지급여력', 'SH025': '유지율', 'SH160': '신계약', 'SH166': '수입보험료'}
 START, END = '202312', time.strftime('%Y%m')
 # FISIS 회사명(정식 명칭·음차 표기) → 분석 대상 이름
-KEYS = [('삼성생명', '삼성생명'), ('한화생명', '한화생명'), ('교보라이프플래닛', '교보라이프플래닛'), ('라이프플래닛', '교보라이프플래닛'),
+KEYS = [('케이디비', 'KDB생명'), ('KDB', 'KDB생명'), ('삼성생명', '삼성생명'), ('한화생명', '한화생명'), ('교보라이프플래닛', '교보라이프플래닛'), ('라이프플래닛', '교보라이프플래닛'),
         ('교보생명', '교보생명'), ('신한라이프', '신한라이프'), ('농협생명', 'NH농협생명'), ('KB라이프', 'KB라이프'), ('케이비라이프', 'KB라이프'),
         ('메트라이프', '메트라이프'), ('동양생명', '동양생명'), ('흥국생명', '흥국생명'), ('라이나', '라이나생명'), ('미래에셋', '미래에셋생명'),
         ('DB생명', 'DB생명'), ('디비생명', 'DB생명'), ('AIA', 'AIA생명'), ('에이아이에이', 'AIA생명'), ('ABL', 'ABL생명'), ('에이비엘', 'ABL생명'),
-        ('KDB', 'KDB생명'), ('케이디비', 'KDB생명'), ('iM라이프', 'iM라이프'), ('아이엠라이프', 'iM라이프'), ('DGB생명', 'iM라이프'),
+        ('iM라이프', 'iM라이프'), ('아이엠라이프', 'iM라이프'), ('DGB생명', 'iM라이프'),
         ('하나생명', '하나생명'), ('IBK', 'IBK연금'), ('아이비케이', 'IBK연금'), ('푸본현대', '푸본현대생명'), ('처브', '처브라이프'),
         ('카디프', 'BNP카디프생명')]
 
@@ -47,12 +47,47 @@ def rows(res):
     return [x] if isinstance(x, dict) else x
 
 
+def legend(res):
+    """값 열 이름표: description은 [{column_id, column_nm}] 목록(한 개면 객체, 드물게 {'column': [...]})"""
+    d = res.get('description')
+    if isinstance(d, dict) and 'column_id' not in d:
+        d = d.get('column')
+    if isinstance(d, dict):
+        d = [d]
+    return {c.get('column_id'): c.get('column_nm') for c in (d or []) if isinstance(c, dict)}
+
+
 def match(name):
+    if '[폐]' in name:                                  # 폐업·합병된 옛 법인 제외
+        return None
     n = name.replace(' ', '').upper()
     for k, v in KEYS:
         if k.upper() in n:
             return v
     return None
+
+
+def fetch_one(key, r, ln, lnm):
+    for term in ('Q', 'H', 'Y'):
+        cd, msg, res = call('statisticsInfoSearch', key, financeCd=r.finance_cd, listNo=ln, term=term,
+                            startBaseMm=START, endBaseMm=END)
+        if cd == '000' and rows(res):
+            break
+        time.sleep(0.2)
+    else:
+        return None
+    cols = legend(res)
+    units = [u.strip() for u in str(res.get('unit') or '').split(',')]
+    uo = dict(zip(cols, units)) if len(units) == len(cols) else {}
+    out = []
+    for x in rows(res):
+        for k, v in x.items():
+            if k in ('base_month', 'finance_cd', 'finance_nm', 'account_cd', 'account_nm'):
+                continue
+            out.append(dict(co=r.co, list_no=ln, list_nm=lnm, term=term, base_month=x.get('base_month'),
+                            account_cd=x.get('account_cd'), account_nm=x.get('account_nm'),
+                            column=cols.get(k, k), unit=uo.get(k, ''), value=v))
+    return out
 
 
 def main():
@@ -69,27 +104,20 @@ def main():
     note(f"FISIS 생명보험사 {len(comp)}곳 중 분석 대상 {len(tgt)}곳 대응"
          + (f" · 못 찾음: {sorted(set(KEYS[i][1] for i in range(len(KEYS))) - set(tgt.co))}" if len(tgt) < 22 else ''))
     out = []
+    errs = []
     for r in tgt.itertuples():
         for ln, lnm in LISTS.items():
-            for term in ('Q', 'H', 'Y'):
-                cd, msg, res = call('statisticsInfoSearch', key, financeCd=r.finance_cd, listNo=ln, term=term,
-                                    startBaseMm=START, endBaseMm=END)
-                if cd == '000' and rows(res):
-                    break
-                time.sleep(0.2)
-            else:
-                print(f'  {r.co} {ln}: 자료 없음 ({cd} {msg})'); continue
-            cols = {c['column_id']: c['column_nm'] for c in (res.get('description') or {}).get('column', []) or []} \
-                if isinstance((res.get('description') or {}).get('column'), list) else {}
-            for x in rows(res):
-                for k, v in x.items():
-                    if k in ('base_month', 'finance_cd', 'finance_nm', 'account_cd', 'account_nm'):
-                        continue
-                    out.append(dict(co=r.co, list_no=ln, list_nm=lnm, term=term, base_month=x.get('base_month'),
-                                    account_cd=x.get('account_cd'), account_nm=x.get('account_nm'),
-                                    column=cols.get(k, k), value=v))
+            try:
+                got = fetch_one(key, r, ln, lnm)
+            except Exception as e:                      # 한 지표 실패가 전체를 멈추지 않게
+                errs.append(f'{r.co} {ln}: {type(e).__name__} {e}'); continue
+            if got is None:
+                print(f'  {r.co} {ln}: 자료 없음'); continue
+            out += got
             time.sleep(0.2)
         print(f'  {r.co}: 누적 {len(out):,}행')
+    for e in errs[:10]:
+        note(e, 'warning')
     df = pd.DataFrame(out)
     df.to_csv(os.path.join(B, 'raw', 'fisis_stats.csv'), index=False, encoding='utf-8-sig')
     note(f"FISIS 통계 {len(df):,}행 저장 · 지표별 회사 수 " +
