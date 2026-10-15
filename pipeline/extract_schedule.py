@@ -43,14 +43,19 @@ def buckets(labels):
     out, prev = [], 0
     for lb in labels:
         t = lb.replace(' ', '')
-        if re.search(r'합\s*계|총\s*계|계$', t) and not re.search(r'\d', t):
+        if (re.search(r'합\s*계|총\s*계|계$', t) or '현재가치' in t) and not re.search(r'\d', t):
             out.append('total'); continue
         ns = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)\s*년', t)]
         if not ns:
             out.append(None); continue
         if len(ns) == 1 and INF_WORD.search(t) and not re.search(r'이내|이하|미만', t):
             out.append((ns[0], np.inf)); prev = np.inf; continue
-        lo, hi = (min(ns), max(ns)) if len(ns) > 1 else (prev, ns[0])
+        if len(ns) > 1:                                 # '1년초과~2년이내'는 (1, 2), '11년~15년'처럼 연차를 세는 표기는 앞 구간에 이어 (10, 15)
+            lo, hi = min(ns), max(ns)
+            if '초과' not in t and prev and lo == prev + 1:
+                lo = prev
+        else:
+            lo, hi = prev, ns[0]
         out.append((lo, hi)); prev = hi
     return out
 
@@ -89,7 +94,10 @@ def half_point(vec, total):
 
 
 def parse_table(g):
-    v = g.pivot_table(index='row', columns='col', values='value', aggfunc='first').fillna('')
+    """표 → [(행 이름, [(구간, 금액)], 합계 열 값, 단위 후보)]
+    병합 셀 때문에 칸 위치가 행마다 어긋나므로, 각 행의 숫자 칸을 순서대로 모아 구간 수(+합계 열)와 맞으면 채택"""
+    g = g.assign(row=g['row'].astype(int), col=g['col'].astype(int))
+    v = g.pivot_table(index='row', columns='col', values='value', aggfunc='first').sort_index().sort_index(axis=1).fillna('')
     unit_txt = ' '.join(v.astype(str).values.ravel()) + ' ' + g.ctx.iloc[0]
     units = [u for u in UNITS if re.search(r'단위\s*[:：]?\s*' + u, unit_txt)] or list(UNITS)
     hdr = None
@@ -99,21 +107,23 @@ def parse_table(g):
             hdr = r; break
     if hdr is None:
         return []
-    bk = buckets([str(x) for x in v.loc[hdr]])
-    cols = [c for c, b in zip(v.columns, bk) if isinstance(b, tuple)]
-    tcol = next((c for c, b in zip(v.columns, bk) if b == 'total'), None)
-    rows = []
-    for r in v.index[v.index > hdr]:
-        vals = [num(v.loc[r, c]) for c in cols]
-        if any(x is None for x in vals):
-            continue
-        rows.append((str(v.loc[r, v.columns[0]]), vals, num(v.loc[r, tcol]) if tcol else None))
-    cands = [(nm, vals) for nm, vals, _ in rows]
-    body = [(nm, vals) for nm, vals, _ in rows if not re.search(r'합\s*계|총\s*계', nm)]
-    if len(body) > 1:
-        cands.append(('행 합', [sum(x) for x in zip(*[b[1] for b in body])]))
+    bk = [b for b in buckets([str(x) for x in v.loc[hdr]]) if b is not None]
     spans = [b for b in bk if isinstance(b, tuple)]
-    return [(nm, list(zip(spans, vals)), units) for nm, vals in cands]
+    has_tot = 'total' in bk and bk.index('total') == len(bk) - 1
+    need = len(spans) + (1 if has_tot else 0)
+    out = []
+    for r in v.index[v.index > hdr]:
+        cells = [str(c).strip() for c in v.loc[r]]
+        nums = [num(c) for c in cells if c and num(c) is not None]
+        name = ' '.join(c for c in cells if c and num(c) is None)
+        if len(nums) != need:
+            continue
+        out.append((name, list(zip(spans, nums[:len(spans)])), nums[-1] if has_tot else None))
+    body = [o for o in out if not re.search(r'합\s*계|총\s*계|소\s*계', o[0])]
+    if len(body) > 1:
+        out.append(('행 합', [(s_, sum(o[1][i][1] for o in body)) for i, s_ in enumerate(spans)],
+                    sum(o[2] for o in body) if has_tot else None))
+    return [(nm, vec, tot, units) for nm, vec, tot in out]
 
 
 def main():
@@ -129,26 +139,30 @@ def main():
     found = {}
     for (co, per, rc, doc, tno), g in x.groupby(['co', 'period', 'rcept_no', 'doc', 'table_no'], sort=False):
         targets = {k[1]: v for k, v in asof.items() if k[0] == co}
-        for nm, vec, units in parse_table(g):
+        for nm, vec, tcol, units in parse_table(g):
             raw = sum(v for _, v in vec)
             for u in units:
-                tot = raw * UNITS[u]
-                for when, close in targets.items():
-                    err = abs(tot - close)
-                    if err <= max(1.0, abs(close) * 0.002):
-                        k = (co, when)
-                        if k not in found or err < found[k]['err']:
-                            found[k] = dict(company=co, asof=when, report=per, table=int(tno), row=nm, unit=u, err=round(err, 2),
-                                            total=round(tot, 1), vec=[(s, v * UNITS[u]) for s, v in vec])
+                for basis, tot in (('구간 합', raw * UNITS[u]), ('합계 열', None if tcol is None else tcol * UNITS[u])):
+                    if tot is None:
+                        continue
+                    for when, close in targets.items():
+                        err = abs(tot - close)
+                        if err <= max(1.0, abs(close) * 0.002):
+                            k = (co, when, per)       # 같은 기준일이라도 보고서마다 따로 (나중 보고서가 다시 낸 값과 비교)
+                            if k not in found or err < found[k]['err']:
+                                found[k] = dict(company=co, asof=when, report=per, table=int(tno), row=nm, unit=u, err=round(err, 2),
+                                                basis=basis, total=round(close, 1), nominal=round(raw * UNITS[u], 1),
+                                                vec=[(s, v * UNITS[u]) for s, v in vec])
     sched, ev = [], []
-    for (co, when), f in sorted(found.items()):
-        vec, tot = f['vec'], f['total']
+    for (co, when, per), f in sorted(found.items()):
+        vec, tot = f['vec'], f['nominal']             # 비중은 구간 합 기준(합계 열이 현재가치라 구간 합과 다를 수 있음)
         std = to_std(vec)
-        sched.append(dict(company=co, asof=when, total=tot, **{lb: (None if s is None else round(s, 1)) for lb, s in zip(STD_LB, std)},
+        vint = '당시' if per == when else '재공시'          # 그 시점 보고서(예측 당시) / 다음 보고서의 전기 표
+        sched.append(dict(company=co, asof=when, report=per, vintage=vint, total=f['total'], nominal=tot, basis=f['basis'], **{lb: (None if s is None else round(s, 1)) for lb, s in zip(STD_LB, std)},
                           buckets=' | '.join(f"{lo:g}~{'' if hi == np.inf else f'{hi:g}'}년 {v:,.0f}" for (lo, hi), v in vec),
-                          source=f"{f['report']} 보고서 표 {f['table']} · {f['row']} · {f['unit']}", err=f['err']))
+                          source=f"{f['report']} 보고서 표 {f['table']} · {f['row'] or '합계'} · {f['unit']}", err=f['err']))
         hp = half_point(vec, tot)
-        ev.append(dict(company=co, asof=when, total=tot, s1=cum_share(vec, tot, 1), s5=cum_share(vec, tot, 5),
+        ev.append(dict(company=co, asof=when, report=per, vintage=vint, total=f['total'], nominal=tot, basis=f['basis'], s1=cum_share(vec, tot, 1), s5=cum_share(vec, tot, 5),
                        s10p=None if cum_share(vec, tot, 10) is None else 1 - cum_share(vec, tot, 10),
                        half=None if hp is None else (99.0 if hp == np.inf else round(hp, 2)),
                        pred1=sum(v for (lo, hi), v in vec if hi <= 1 + 1e-9) if cum_share(vec, tot, 1) is not None else None))
