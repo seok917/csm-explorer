@@ -1,0 +1,38 @@
+# 보강 수집: 이미 받은 보고서 원문에서 CSM 상각 예정표·조정 분해·지급여력·영업지표 표를 추가로 모음 (수동 실행)
+name: 보강 수집
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: '한 회사만 시험할 때 회사명 (비우면 전체)'
+        default: ''
+permissions:
+  contents: write
+concurrency:
+  group: csm-write
+  cancel-in-progress: false
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: 원문 재수집 → 추가 표 저장
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY || secrets.DART_KEY }}
+          ONLY: ${{ inputs.only }}
+        run: |
+          if [ -n "$ONLY" ]; then python pipeline/collect_extra.py --only "$ONLY"; else python pipeline/collect_extra.py; fi
+      - name: 결과 커밋
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add raw/extra_tables.csv.gz
+          if git diff --cached --quiet; then echo "변경 없음"; exit 0; fi
+          git commit -m "보강 수집: 상각 예정표·조정·지급여력·영업지표 표 (GitHub Actions)"
+          git pull --rebase
+          git push
