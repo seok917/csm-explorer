@@ -172,7 +172,7 @@ def summarize(E, mv):
     d1 = (b.loc[both, 's1'] - a.loc[both, 's1']).abs()
     d10 = (b.loc[both, 's10p'] - a.loc[both, 's10p']).abs().dropna()
     x25 = b.dropna(subset=['s1'])
-    mv = mv.assign(rr=-mv.release / (mv.open + mv.new + mv.interest + mv.adjust))
+    mv = mv.assign(rr=-mv.release / (mv.close - mv.release))     # 화면의 상각률과 같은 식
     m = a.join(mv[mv.year == '2025'].set_index('company').rr, how='inner').dropna(subset=['s1', 'rr'])
     bt = L[L.bt_ratio.notna()].groupby('at').bt_ratio.median()
     R = ALL[ALL['at'] == '2023.12'].pivot_table(index='company', columns='report', values='s1')   # 기준 변경 탐지는 형식 구분 없이
@@ -255,7 +255,7 @@ def main():
         raw = sum(v for _, v in vec)
         best = None
         yr = int(per[:4])
-        allowed = {per, f'{yr - 1}.12'} if per.endswith('.12') else {per, f'{yr - 1}.12'}   # 그 보고서의 당기·전기 시점만
+        allowed = {per}            # 할인 전 표는 합계가 기말과 정확히 맞지 않아 시점 근거가 약함 → 그 보고서의 당기 시점에만
         for u in units:
             for when, close in {k[1]: v for k, v in asof.items() if k[0] == co and k[1] in allowed}.items():
                 r = raw * UNITS[u] / close if close else 0

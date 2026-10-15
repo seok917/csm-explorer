@@ -113,7 +113,8 @@ def sens_of(co):
     for a, g in f.groupby('asof'):
         r = g.iloc[0]
         nn = lambda k: None if k not in r or pd.isna(r[k]) else float(r[k])
-        out.append(dict(asof=a, report=r['report'], base=float(r['base']), close=float(r['close']), source=r['source'],
+        comb = r['combined'] if 'combined' in r and isinstance(r['combined'], str) else ''
+        out.append(dict(asof=a, report=r['report'], base=float(r['base']), close=float(r['close']), source=r['source'], combined=comb,
                         p={k: nn('p_' + k) for k in SENS_K}, d={k: nn('d_' + k) for k in SENS_K}, sz={k: nn('sz_' + k) for k in SENS_K}))
     return out
 

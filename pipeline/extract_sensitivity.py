@@ -8,7 +8,7 @@
 - 기준금액은 ① 별도 '기준금액' 행 또는 ② 충격 행 맨 앞(교보·농협·DB처럼)에 있음
 - 충격 행의 나머지 숫자 r에서 r[k]가 기준 CSM에 가까우면 '변동 후 금액'(신한·라이나) → 변화 = r[k] − 기준, 아니면 '변동 금액'(교보·한화) → 변화 = r[k]
 - 유배당·무배당 등 구분 행이 있으면 소계/합계 행을, 없으면 구분 행을 더함
-- 기준 CSM이 그 회사의 기말 CSM(당기 또는 전기, ±15%: 재보험 전 금액·연결/별도 차이 허용)과 맞는 표만 채택 → 다른 회사·다른 표가 섞이지 않게
+- 기준 CSM이 그 회사의 기말 CSM(당기 또는 전기, ±8%: 재보험 전 금액·연결/별도 차이 허용)과 맞는 표만 채택 → 다른 회사·다른 표가 섞이지 않게
 결과: data/sensitivity.csv (회사·기준일·충격별 CSM 변화 금액·비율·충격 크기)
 """
 import os, re, sys
@@ -59,8 +59,8 @@ def rows_of(g):
         for c in cells:
             if SIZE.fullmatch(c.replace(' ', '')) or re.fullmatch(r'[\d.]+%p?(증가|감소|상승|하락)', c.replace(' ', '')):
                 label.append(c); continue                     # '3.27% 증가' 같은 충격 크기는 숫자가 아니라 이름
-            n = num(c)
-            if n is None or c in ('_',):
+            n = 0.0 if c in ('_', '－') else num(c)              # 한화처럼 빈칸을 '_'로 쓰는 표: 0으로 읽어야 칸 위치가 맞음
+            if n is None:
                 label.append(c)
             else:
                 nums.append(n)
@@ -78,21 +78,29 @@ def parse(g, closes):
     for nb in (2, 4):
         k = nb // 2
         base_row = next((n for lb, n in rows if '기준' in lb and not re.search(r'사망|해지|사업비|장해', lb) and len(n) >= nb), None)
-        cur, acc, seg_base = None, {}, {}
+        cur, acc, seg_base, cur_size, comb = None, {}, {}, None, set()
         L0 = max((len(n) for lb, n in rows if n and re.search(r'사망|해지|장해|사업비|유배당|무배당|변액|소\s*계|합\s*계', lb)), default=0)
         for lb, n in rows:
             if base_row is not None and n is base_row:
                 continue
             if not n:
-                cur = shock_of(lb, cur)[:2] if re.search(r'사망|해지|사업비|장해|질병|실손|재물|인플레|할인', lb) else cur
+                if re.search(r'사망|해지|사업비|장해|질병|실손|재물|인플레|할인', lb):
+                    *cur, cur_size = shock_of(lb, cur); cur = tuple(cur)
                 continue
             kind, d, size = shock_of(lb, cur)
+            if size is None and kind == (cur[0] if cur else None):
+                size = cur_size                                  # 농협처럼 충격 이름·크기 행과 숫자 행이 나뉜 표
+            cur_size = size if size is not None else cur_size
             cur = (kind, d)
             if kind in (None, 'skip', 'infl'):
                 continue
             key = kind + ('_' + d if kind == 'lapse' else '')
             if kind != 'lapse' and d == 'dn':
                 continue                                       # 사망률·사업비 하락 충격은 쓰지 않음(표준: 상승)
+            if kind == 'morb' and '실손' in lb:
+                comb.add('morb')                                  # 정액·실손을 한 행에 합쳐 공시(신한)
+            if kind == 'exp' and '인플레' in lb:
+                comb.add('exp')                                   # 사업비 수준·인플레이션을 합쳐 공시
             seg = re.sub(r'[\d.,%p()]|증가|감소|상승|하락|사망률|해지율|사업비|장해질병|정액보상|실손보상|수준|[()]', '', lb).strip()
             total_row = bool(re.search(r'소\s*계|합\s*계', lb))
             if base_row is not None:
@@ -126,12 +134,12 @@ def parse(g, closes):
         if sum(1 for v in shocks.values() if v[0] == 0) >= 2:
             continue                                           # 변화가 0인 충격이 여럿이면 열을 잘못 읽은 것
         if closes is None:                                     # 포트폴리오별로 나뉜 표를 합치기 위한 원자료
-            res.append(dict(nb=nb, base=b, units=units, shocks=shocks)); continue
+            res.append(dict(nb=nb, base=b, units=units, shocks=shocks, comb=comb)); continue
         cand = [(abs(b * UNITS[u] / c - 1), u, w, b * UNITS[u] / c) for u in units for w, c in closes.items() if c]
-        cand = [c for c in cand if c[0] <= 0.15]
+        cand = [c for c in cand if c[0] <= 0.08]
         if cand:                                               # 한 표는 기말 CSM에 가장 가까운 한 시점에만 대응
             _, u, w, r = min(cand)
-            res.append(dict(nb=nb, base=b, unit=u, asof=w, ratio=r, shocks=shocks))
+            res.append(dict(nb=nb, base=b, unit=u, asof=w, ratio=r, shocks=shocks, comb=comb))
     return res
 
 
@@ -168,7 +176,7 @@ def main():
             if k2 not in best or score < best[k2][0]:
                 best[k2] = (score, dict(company=co, asof=c['asof'], report=per, vintage='당시' if c['asof'] == per else '재공시',
                                         base=round(c['base'] * scale, 1), close=round(close[(co, c['asof'])], 1),
-                                        source=f'{per} 보고서 표 {tno} · {c["unit"]}',
+                                        source=f'{per} 보고서 표 {tno} · {c["unit"]}', combined=';'.join(sorted(c['comb'])),
                                         **{f'd_{k}': round(v[0] * scale, 1) for k, v in s.items()},
                                         **{f'p_{k}': round(v[0] / c['base'], 5) for k, v in s.items()},
                                         **{f'sz_{k}': v[1] for k, v in s.items()}))
@@ -204,6 +212,7 @@ def main():
         s_ = {k: (sum(c['shocks'][k][0] for _, c in combo), combo[0][1]['shocks'][k][1]) for k in keys}
         best[(co, when, per)] = (0, dict(company=co, asof=when, report=per, vintage='당시', base=round(b * scale, 1), close=round(close[(co, when)], 1),
                                          source=f"{per} 보고서 표 {'+'.join(t for t, _ in combo)} · {u} (포트폴리오 합산)",
+                                         combined=';'.join(sorted(set().union(*[c['comb'] for _, c in combo]))),
                                          **{f'd_{k}': round(v[0] * scale, 1) for k, v in s_.items()},
                                          **{f'p_{k}': round(v[0] / b, 5) for k, v in s_.items()},
                                          **{f'sz_{k}': v[1] for k, v in s_.items()}))

@@ -392,11 +392,21 @@ def test_sensitivity_sanity():
     if s is None:
         return
     for r in s.itertuples():
-        assert 0.85 <= r.base / r.close <= 1.15, (r.company, r.asof, r.base, r.close)       # 그 회사 기말 CSM과 맞는 표만
+        assert 0.92 <= r.base / r.close <= 1.08, (r.company, r.asof, r.base, r.close)       # 그 회사 기말 CSM과 맞는 표만
         ps = [getattr(r, c) for c in s.columns if c.startswith('p_') and pd_notna(getattr(r, c))]
         assert all(abs(v) < 0.6 for v in ps), (r.company, r.asof)
         if pd_notna(r.p_lapse_dn):
             assert r.p_lapse_up * r.p_lapse_dn < 0, (r.company, r.asof)                     # 해지율 상승·하락은 반대 방향
+
+
+def test_sensitivity_hand_checked_hanwha_2023():
+    """독립 검토에서 찾은 오류의 회귀 테스트: 한화 2023.12 사업비 충격 −217,202 / 9,238,488 = −2.35% ('_' 빈칸 처리)"""
+    s = _sens()
+    if s is None:
+        return
+    r = s[(s.company == '한화생명') & (s['asof'] == '2023.12')]
+    if len(r):
+        assert abs(r.iloc[0].p_exp + 0.0235) < 0.0005, r.iloc[0].p_exp
 
 
 def pd_notna(v):

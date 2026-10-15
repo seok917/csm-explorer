@@ -1,8 +1,8 @@
 {
  "n_company": 22,
- "n_stable": 16,
- "d_s1_median": 0.002,
- "d_s10_median": 0.0161,
+ "n_stable": 17,
+ "d_s1_median": 0.0021,
+ "d_s10_median": 0.0179,
  "s1_range": [
   0.0298,
   0.1615
@@ -14,11 +14,11 @@
  "n_2025": 17,
  "s1_min_co": "DB생명",
  "s1_max_co": "BNP카디프생명",
- "rank_corr": 0.63,
- "n_rank": 16,
+ "rank_corr": 0.62,
+ "n_rank": 17,
  "bt_median": {
   "2023.12": 1.13,
-  "2024.12": 1.64
+  "2024.12": 1.63
  },
  "restated_2023": [
   "IBK연금",
