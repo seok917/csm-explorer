@@ -288,7 +288,8 @@ function match(t){ t = norm(t); if(!t) return C.slice(0,8);
   return C.filter(c => norm(c.name).includes(t) || c.alias.some(a => norm(a).includes(t) || t.includes(norm(a)))); }
 function showSugg(){ list = match(q.value); hi = list.length? 0 : -1;
   sg.innerHTML = list.length ? list.map((c,i)=>{ const y=c.years['2025']||c.years['2024'];
-    return `<li role="option" id="o${i}" aria-selected="${i===hi}" data-n="${esc(c.name)}"><span>${esc(c.name)}</span><small class="num">${won(y.close)} · ${y.rank}위</small></li>`}).join('')
+    const yl=c.years['2025']?'':' (2024)';
+    return `<li role="option" id="o${i}" aria-selected="${i===hi}" data-n="${esc(c.name)}"><span>${esc(c.name)}</span><small class="num">${won(y.close)} · ${y.rank}위${yl}</small></li>`}).join('')
     : `<li aria-disabled="true"><span>찾는 회사가 없습니다</span><small>다른 이름으로 검색해 보세요</small></li>`;
   sg.hidden = false; combo.setAttribute('aria-expanded','true'); }
 function hideSugg(){ sg.hidden = true; combo.setAttribute('aria-expanded','false'); }
@@ -377,7 +378,7 @@ function render(){
   $('coSub').innerHTML=`CSM 잔액 업계 <b class="num">${r.rank}위</b> / ${r.n}곳 · ${esc(cur.year)} · 자료: ${esc(r.source||'DART 주석')}`;
   $('yearSeg').innerHTML=D.years.map(y=>`<button type="button" data-y="${y}" aria-pressed="${y===cur.year}" ${c.years[y]?'':'disabled'}>${y}</button>`).join('');
   [...$('metricSel').children].forEach(b=>b.setAttribute('aria-pressed', b.dataset.m===cur.metric));
-  const yc = c.checks.filter(k=>k.year===cur.year||k.year===cur.year.slice(0,4));
+  const yc = c.checks.filter(k=>k.year===cur.year||(!cur.year.includes('상반기')&&k.year===cur.year.slice(0,4)));
   const nOk=yc.filter(k=>k.status==='통과').length, nAll=yc.filter(k=>k.status!=='자료없음').length;
   const g=r.growth;
   $('kpis').innerHTML=[
@@ -439,7 +440,7 @@ function schedChart(host, rows){
   const W=Math.max(260,host.clientWidth||560), rowH=30, L=W<480?70:84, R=W<480?44:56, T=4, H=T+rowH*rows.length+4; const sv=svg(W,H); host.appendChild(sv);
   const acc=css('--accent'), x=v=>L+(W-L-R)*v;
   rows.forEach((s,i)=>{ const yy=T+i*rowH; const tot=BK.reduce((a,k)=>a+(s.b[k]||0),0)||1; let run=0;
-    const lab = s.restated? '↳ 재공시' : s.asof + (s.vintage==='당시'? '' : '*');
+    const lab = s.restated? '↳ 재공시' : s.asof + (s.vintage==='당시'? '' : '*') + (s.main===false? '†' : '');
     el('text',{x:L-8,y:yy+rowH/2+4,'text-anchor':'end','font-size':12,fill:s.restated?css('--muted'):css('--ink'),'font-family':css('--f-num')},sv,lab);
     const g=el('g',{},sv); const t=el('title',{},g, `${s.asof} 기준 · ${s.report} 보고서\n`+BK.map(k=>`${k} ${won(s.b[k])} (${pct((s.b[k]||0)/tot,1)})`).join('\n'));
     BK.forEach((k,j)=>{ const v=(s.b[k]||0)/tot; if(v<=0) { return; } const x0=x(run), w=Math.max(0,x(run+v)-x0-1.5);
@@ -456,6 +457,7 @@ function renderCap(c, r){
   rows.filter(s=>s.vintage==='당시'&&s.bt!=null).forEach(s=>notes.push(`${esc(s.asof)} 예정 '1년 이내' ${won(s.pred1)} → 다음 해 실제 상각 ${won(s.actual_next)} (<b>${s.bt.toFixed(2)}배</b>)`));
   rows.filter(s=>s.restated).forEach(s=>notes.push(`<b>산출 기준 변경:</b> ${esc(s.asof)} 시점 예정표가 ${esc(s.report)} 보고서에서 다시 공시되며 1년 이내 비중이 ${pct(s.restated.s1,1)} → ${pct(s.s1,1)}로 바뀌었습니다.`));
   if(rows.some(s=>s.vintage!=='당시'&&!s.restated)) notes.push('* 그 시점 보고서가 수집 범위 밖이라 다음 해 보고서의 전기 표를 사용');
+  if(rows.some(s=>s.main===false&&!s.restated)) notes.push(`† 이 회사가 주로 쓰는 형식(${esc((rows.find(s=>s.main)||{}).fmt||'')} 표)과 다른 형식의 표라 바로 이어 비교하지 않습니다.`);
   if(rows.length) notes.push('예정표는 그 시점 잔액만 대상이라, 다음 해 실제 상각에는 그해 신계약분·이자부리가 더해져 예정보다 큰 것이 정상입니다. 수준보다 연도 간 안정성을 봐야 합니다.');
   $('schedNote').innerHTML=notes.join('<br>');
   const J=D.schedule_eval;
@@ -478,7 +480,7 @@ function renderCap(c, r){
   h+=line('신계약 대체율 <small style="color:var(--muted)">신계약 ÷ 상각</small>',(x,y)=>sub(x.replace,md.replace_median&&md.replace_median[y],v=>v.toFixed(2)+'배'));
   h+=line('조정 중 가정 변경',(x)=>x.split?n0(x.split.assume):'–');
   h+=line('조정 중 경험 차이 <small style="color:var(--muted)">물량·투자요소 예실차</small>',(x)=>x.split&&x.split.experience!=null?n0(x.split.experience):'–');
-  const okMul=f=>f&&f.multiple!=null&&f.prot_init>=50&&f.multiple<=40;   // 보장성 초회보험료가 너무 작거나 배수가 비정상이면 표시하지 않음
+  const okMul=f=>f&&f.multiple!=null&&f.prot_init>=100&&f.multiple>=5&&f.multiple<=30;   // 보장성 초회보험료가 작거나(분류 차이) 배수가 업계 통상 범위(5~30배)를 벗어나면 표시하지 않음
   const fk=[['kics','지급여력비율(K-ICS) <small style="color:var(--muted)">FISIS</small>',v=>v.toFixed(1)+'%'],['p13','13회차 유지율',v=>v.toFixed(1)+'%'],['p25','25회차 유지율',v=>v.toFixed(1)+'%'],
     ['multiple','신계약 CSM 배수 <small style="color:var(--muted)">신계약 CSM ÷ 보장성 초회보험료</small>',v=>v.toFixed(1)+'배']];
   fk.forEach(([k,lab,fm])=>{ if(ys.some(y=>F[y]&&F[y][k]!=null)) h+=line(lab,(x,y)=>{ const f=F[y]; if(!f||f[k]==null) return '–'; if(k==='multiple'&&!okMul(f)) return '<span title="보장성 초회보험료가 작거나 다른 분류(특별계정 등)에 잡혀 배수를 계산하지 않음">·</span>'; return fm(f[k]); }); });

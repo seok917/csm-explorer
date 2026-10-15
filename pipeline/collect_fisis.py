@@ -119,6 +119,16 @@ def main():
     for e in errs[:10]:
         note(e, 'warning')
     df = pd.DataFrame(out)
+    old_p = os.path.join(B, 'raw', 'fisis_stats.csv')
+    if os.path.exists(old_p) and len(df):                # 이번에 실패한 회사·지표는 지난번 값을 유지(빈칸으로 덮어쓰지 않음)
+        old = pd.read_csv(old_p, dtype=str)
+        got = set(zip(df.co, df.list_no))
+        keep = old[[(c, l) not in got for c, l in zip(old.co, old.list_no)]]
+        if len(keep):
+            note(f'이번에 못 받은 {keep.groupby(["co", "list_no"]).ngroups}개 회사·지표는 지난 값 유지', 'warning')
+        df = pd.concat([df, keep], ignore_index=True)
+    if df.empty:
+        raise SystemExit('FISIS 통계를 하나도 받지 못해 기존 파일을 그대로 둡니다.')
     df.to_csv(os.path.join(B, 'raw', 'fisis_stats.csv'), index=False, encoding='utf-8-sig')
     note(f"FISIS 통계 {len(df):,}행 저장 · 지표별 회사 수 " +
          ', '.join(f"{LISTS[k]} {v}" for k, v in df.groupby('list_no').co.nunique().items()))

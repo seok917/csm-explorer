@@ -95,6 +95,10 @@ def main():
     done = pd.read_csv(OUT, dtype=str).fillna('') if os.path.exists(OUT) else pd.DataFrame(columns=COLS)
     if 'ctx' not in done.columns:                     # 표 앞 문맥이 없던 이전 형식 → 처음부터 다시
         done = pd.DataFrame(columns=COLS)
+    stale = set(done.rcept_no) - set(have.rcept_no)   # 정정공시로 대체된 옛 보고서의 표는 버림(새 표와 섞이지 않게)
+    if stale:
+        print(f'정정으로 대체된 보고서 {len(stale)}건의 표 제거')
+        done = done[~done.rcept_no.isin(stale)]
     if '--only' in sys.argv:                          # 시험 실행: 그 회사만 다시 받음
         only = sys.argv[sys.argv.index('--only') + 1]
         have, done = have[have.co == only], done[done.co != only]

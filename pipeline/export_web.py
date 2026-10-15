@@ -39,8 +39,8 @@ mv['offset'] = -mv.adjust / mv.new
 mv['post_share'] = mv.close_post / mv.close
 mv['adj_post_share'] = mv.adjust_post / mv.adjust
 mv['growth'] = (mv.close - mv.open) / mv.open
-# 상각률: 그해 상각 전 잔액(기초+신계약+이자부리+조정) 중 이익으로 풀린 비율 / 대체율: 신계약 CSM ÷ 상각액(1배 초과면 풀린 것보다 많이 새로 쌓음)
-mv['release_rate'] = -mv.release / (mv.open + mv.new + mv.interest + mv.adjust)
+# 상각률: 그해 상각 전 잔액(기말+상각 = 기초+신계약+이자부리+조정+기타) 중 이익으로 풀린 비율 / 대체율: 신계약 CSM ÷ 상각액(1배 초과면 풀린 것보다 많이 새로 쌓음)
+mv['release_rate'] = -mv.release / (mv.close - mv.release)      # 상각 전 잔액 = 기말 + 상각 (합병 등 기타 변동까지 포함)
 mv['replace'] = mv.new / -mv.release
 mv['rank'] = mv.groupby('year').close.rank(ascending=False, method='min').astype(int)
 mv['n_year'] = mv.groupby('year').company.transform('count')
@@ -80,7 +80,7 @@ def summary(r):
         m = med[y]
         s.append(f"신계약 대비 조정 비율은 같은 기간 업계 중앙값({m:.0%})보다 {'높' if r.offset > m else '낮'}습니다.")
         extra['%'].append(m * 100)
-    c = ck[(ck.company == r.company) & ck.year.isin([y, y[:4]])]
+    c = ck[(ck.company == r.company) & ck.year.isin([y] if '상반기' in y else [y, y[:4]])]
     n_ok = (c.status == '통과').sum(); n_bad = (c.status == '불일치').sum(); n_w = (c.status == '주의').sum()
     s.append(f"자동 검증: 규칙 {len(c)}건 중 통과 {n_ok}, 불일치 {n_bad}, 확인 필요 {n_w}.")
     extra['개수'] += [len(c), n_ok, n_bad, n_w]
@@ -94,7 +94,7 @@ def sched_of(co):
     for _, r in SCH[SCH.company == co].iterrows():
         e = SEV[(SEV.company == co) & (SEV['asof'] == r['asof']) & (SEV.report == r['report'])].iloc[0]   # .asof는 pandas 메서드라 [] 사용
         nn = lambda v: None if pd.isna(v) else float(v)
-        out.append(dict(asof=r['asof'], report=r['report'], vintage=r['vintage'], total=r['total'], nominal=r['nominal'],
+        out.append(dict(asof=r['asof'], report=r['report'], vintage=r['vintage'], fmt=r['fmt'], main=bool(r['main_fmt']), total=r['total'], nominal=r['nominal'],
                         b={lb: nn(r[lb]) for lb in STD_LB},
                         s1=nn(e.s1), s5=nn(e.s5), s10p=nn(e.s10p), half=nn(e.half), pred1=nn(e.pred1),
                         actual_next=nn(e.actual_next), bt=nn(e.bt_ratio), source=r['source']))
@@ -196,7 +196,7 @@ if SEN is not None:                                  # 충격별 업계 중앙�
 if os.path.exists(f'{D}/schedule_summary.json'):
     data['schedule_eval'] = json.load(open(f'{D}/schedule_summary.json', encoding='utf-8'))
 data['ai_stats'] = {k: sum(1 for v in AI.values() if v['status'] == k) for k in ('ok', 'fixed', 'rejected')}
-data['meta'] = dict(n_company=len(data['companies']), n_checks=int(len(ck)), n_reports=109,
+data['meta'] = dict(n_company=len(data['companies']), n_checks=int(len(ck)), n_reports=int(len(pd.read_csv(f'{D}/../raw/filings.csv'))),
                     check_counts=ck.status.value_counts().to_dict(), reviewed=int((ck.status.isin(['불일치','주의']) & (ck.decision != '')).sum()), flagged=int(ck.status.isin(['불일치','주의']).sum()), offset_median={k: round(v, 4) for k, v in med.items()},
                     release_rate_median={k: round(v, 4) for k, v in med_rr.items()}, replace_median={k: round(v, 3) for k, v in med_rep.items()},
                     built=pd.Timestamp.now(tz='Asia/Seoul').strftime('%Y-%m-%d'))

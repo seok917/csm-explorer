@@ -20,7 +20,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(__file__))
 from build_data import SHORT
-from periods import label, report_period, order_key, prev_year_end
+from periods import label, report_period, order_key, prev_year_end, wanted
 
 DUMP = os.environ.get('CSM_DUMP', 'output/all_tables')
 D = os.path.join(os.path.dirname(__file__), '..', 'data')
@@ -345,21 +345,30 @@ def main():
     final = assemble(auto)
     # 2) 그 뒤에 새로 나온 공시(분기 자동 업데이트로 받은 보고서): 금감원 값이 아직 없으므로
     #    기초를 '전년 연말 최종 기말(이미 검증된 값)'에 맞춰 표 선택
-    latest = max(order_key(y) for y in fz.year)
     known = set(zip(fz.company, fz.year))
-    new = sorted({(co, label(p)) for co, p in R if order_key(label(p)) > latest and (co, label(p)) not in known},
+    new = sorted({(co, label(p)) for co, p in R if (co, label(p)) not in known and wanted(label(p), set(fz.year))},
                  key=lambda k: (k[0], order_key(k[1])))
     if new:
         closes = {(r.company, r.year): r.close for r in final.itertuples()}
         extra = []
+        held = []
         for co, y in new:
-            row = extract_one(R, cache, co, y, m100(closes.get((co, prev_year_end(y)))), None)
+            t_open = closes.get((co, prev_year_end(y)))
+            if t_open is None:                      # 기초를 맞출 전년 기말이 없으면 표를 고를 근거가 없음 → 올리지 않고 보류
+                held.append(f'{co} {y}'); continue
+            row = extract_one(R, cache, co, y, m100(t_open), None)
+            if row.get('close') is None:
+                held.append(f'{co} {y}(추출 실패)'); continue
             extra.append(row)
             if row.get('close') is not None:
                 closes[(co, y)] = row['close']
-        print('새 공시에서 추가한 기간:', ', '.join(f"{r['company']} {r['year']}" + ('' if r.get('tables') else '(실패)') for r in extra))
-        auto = pd.concat([auto, pd.DataFrame(extra)], ignore_index=True)
-        final = assemble(auto)
+        print('새 공시에서 추가한 기간:', ', '.join(f"{r['company']} {r['year']}" for r in extra) or '없음')
+        if held:
+            print('보류(화면에 올리지 않음):', ', '.join(held))
+        pd.DataFrame({'held': held}).to_csv(f'{D}/held_periods.csv', index=False, encoding='utf-8-sig')
+        if extra:
+            auto = pd.concat([auto, pd.DataFrame(extra)], ignore_index=True)
+            final = assemble(auto)
     auto.to_csv(f'{D}/movement_auto.csv', index=False, encoding='utf-8-sig')
     final.to_csv(f'{D}/movement.csv', index=False, encoding='utf-8-sig')
     print(f"자동 추출 {auto.tables.notna().sum()}/{len(auto)}건 | 수작업 판독값과 일치 {(rep.status == '일치').sum()}건 · "

@@ -169,7 +169,7 @@ def test_collector_parses_dart_tables():   # DART 원문(XML) → 표 셀: 대�
     assert set(df.table_no) == {'1'} and len(df) == 8
 
 
-def test_new_filing_becomes_new_period():   # 새 3분기 공시가 스냅숏에 들어오면 기간이 자동으로 추가되고 기초=전년 연말로 표를 고름
+def test_new_filing_becomes_new_period():   # 새 연간 공시가 스냅숏에 들어오면 기간이 자동으로 추가되고 기초=전년 연말로 표를 고름 (1·3분기는 올리지 않음)
     import pandas as pd, extract_movement as E
     tmp = tempfile.mkdtemp()
     try:
@@ -177,7 +177,9 @@ def test_new_filing_becomes_new_period():   # 새 3분기 공시가 스냅숏에
             if f.endswith('.csv'):
                 shutil.copy(os.path.join(D, f), tmp)
         s = pd.read_csv(E.SNAP, dtype=str).fillna('')
-        fake = s[(s.co == '신한라이프') & (s.period == '2026.06')].assign(period='2026.09', rcept_no='20261114999999')
+        fake = s[(s.co == '신한라이프') & (s.period == '2026.06')].assign(period='2026.12', rcept_no='20270331999999')
+        q3 = s[(s.co == '신한라이프') & (s.period == '2026.06')].assign(period='2026.09', rcept_no='20261114999998')
+        fake = pd.concat([fake, q3])
         snap = os.path.join(tmp, 'snap.csv.gz'); pd.concat([s, fake]).to_csv(snap, index=False, compression='gzip')
         old = (E.D, E.SNAP, E.DUMP)
         E.D, E.SNAP, E.DUMP = tmp, snap, os.path.join(tmp, 'no-dump')
@@ -186,8 +188,9 @@ def test_new_filing_becomes_new_period():   # 새 3분기 공시가 스냅숏에
         finally:
             E.D, E.SNAP, E.DUMP = old
         mv = pd.read_csv(os.path.join(tmp, 'movement.csv'), dtype={'year': str}).set_index(['company', 'year'])
-        assert abs(mv.loc[('신한라이프', '2026 3분기')].open - mv.loc[('신한라이프', '2025')].close) < 0.5
-        assert ('신한라이프', '2026 3분기') not in set(pd.read_csv(os.path.join(D, 'movement.csv'), dtype={'year': str})[['company', 'year']].itertuples(index=False, name=None))
+        assert abs(mv.loc[('신한라이프', '2026')].open - mv.loc[('신한라이프', '2025')].close) < 0.5
+        assert ('신한라이프', '2026 3분기') not in mv.index                 # 분기는 화면 기간이 아님
+        assert ('신한라이프', '2026') not in set(pd.read_csv(os.path.join(D, 'movement.csv'), dtype={'year': str})[['company', 'year']].itertuples(index=False, name=None))
     finally:
         shutil.rmtree(tmp)
 
@@ -250,7 +253,7 @@ def test_release_rate_and_replace_identity():
         for y, r in c['years'].items():
             if r.get('release_rate') is None:
                 continue
-            base = r['open'] + r['new'] + r['interest'] + r['adjust']
+            base = r['close'] - r['release']
             assert abs(r['release_rate'] * base + r['release']) <= base * 0.00005 + 0.5, (c['name'], y)   # 비율은 소수 4자리 반올림
             assert abs(r['replace'] * -r['release'] - r['new']) <= max(1, r['new'] * 0.002), (c['name'], y)
 
@@ -270,6 +273,50 @@ def test_schedule_bucket_labels():
     assert b == [(0, 1), (1, 2), (10, np.inf)], b
 
 
+def test_schedule_asof_never_after_report():
+    """예정표 기준일은 그 보고서의 당기 또는 전기 연말이어야 함(보고서보다 뒤 시점 불가)"""
+    import pandas as pd
+    for f in ('schedule.csv', 'sensitivity.csv'):
+        p = os.path.join(D, f)
+        if not os.path.exists(p):
+            continue
+        d = pd.read_csv(p, dtype={'asof': str, 'report': str})
+        for r in d.itertuples():
+            assert r.asof <= r.report and r.asof in (r.report, f'{int(r.report[:4]) - 1}.12'), (f, r.company, r.asof, r.report)
+
+
+def test_no_identical_series_across_companies():
+    """다른 회사 값이 섞이면 두 회사가 같은 숫자 묶음을 갖게 됨 — 변동표·예정표·FISIS·민감도 모두 회사 간 중복 금지"""
+    import pandas as pd
+    checks = [('movement.csv', ['open', 'new', 'release', 'close']), ('fisis_metrics.csv', ['kics', 'p13', 'p25', 'prot_init']),
+              ('schedule.csv', ['1년 이내', '1~2년', '2~5년', '5~10년', '10년 초과']), ('sensitivity.csv', ['d_mort', 'd_lapse_up'])]
+    for f, cols in checks:
+        p = os.path.join(D, f)
+        if not os.path.exists(p):
+            continue
+        d = pd.read_csv(p).dropna(subset=cols)
+        sig = d[cols].round(1).astype(str).agg('|'.join, axis=1)
+        owners = d.groupby(sig).company.nunique()
+        assert (owners <= 1).all(), (f, owners[owners > 1].index.tolist()[:3])
+
+
+def test_fisis_company_codes_pinned():
+    """FISIS 회사코드 ↔ 회사명 대응을 고정값과 대조(이름 부분일치로 다른 회사가 붙는 것 방지)"""
+    import pandas as pd
+    p = os.path.join(ROOT, 'raw', 'fisis_companies.csv')
+    if not os.path.exists(p):
+        return
+    pin = {'0010599': '신한라이프', '0010595': '삼성생명', '0010593': '한화생명', '0010597': '교보생명', '0013173': 'NH농협생명',
+           '0010616': 'KB라이프', '0010607': 'KDB생명', '0010619': 'DB생명', '0010620': '메트라이프', '0011434': '라이나생명',
+           '0010605': 'iM라이프', '0012455': 'IBK연금', '0010594': 'ABL생명', '0010615': 'AIA생명', '0011226': 'BNP카디프생명',
+           '0013436': '교보라이프플래닛', '0010608': '미래에셋생명', '0010622': '동양생명', '0010596': '흥국생명', '0010618': '하나생명', '0010625': '처브라이프', '0011320': '푸본현대생명'}
+    m = pd.read_csv(p, dtype=str).dropna(subset=['co'])
+    got = dict(zip(m.finance_cd, m.co))
+    for cd, co in pin.items():
+        assert got.get(cd) == co, (cd, got.get(cd), co)
+    assert m.co.value_counts().max() == 1 and len(m) == 22, m.co.value_counts().head()
+
+
 def test_schedule_totals_match_close():
     """예정표는 합계가 그 시점 기말 CSM과 맞는 표만 채택 — 구간 합도 잔액과 맞아야 함(구간 해석 오류 탐지)"""
     import pandas as pd
@@ -282,7 +329,7 @@ def test_schedule_totals_match_close():
             assert 1.0 <= r.nominal / r.total <= 1.2, (r.company, r.asof, r.total, r.nominal)
         else:
             assert abs(r.total - r.nominal) <= max(2, abs(r.total) * 0.01) or r.basis == '합계 열', (r.company, r.asof, r.total, r.nominal)
-        vals = [getattr(r, f'_{i}') for i in range(8, 13)]
+        vals = [sc.loc[r.Index, c] for c in ('1년 이내', '1~2년', '2~5년', '5~10년', '10년 초과')]
         if any(pd.isna(v) for v in vals):                # 구간이 표준 경계를 가로지르면(예: 1~3년) 표준 5구간 합계는 비교하지 않음
             continue
         parts = sum(vals)
@@ -297,6 +344,20 @@ def test_fisis_kics_matches_dart():
     import pandas as pd
     f = pd.read_csv(p, dtype={'year': str}).set_index(['company', 'year'])
     assert abs(f.loc[('신한라이프', '2023'), 'kics'] - 250.8) < 0.1
+
+
+def test_fisis_persistency_matches_dart():
+    """FISIS 13·25회차 유지율 = DART 사업보고서 '계약유지율' (DB생명·흥국생명이 직접 공시) — 두 출처 대조"""
+    p = os.path.join(D, 'fisis_metrics.csv')
+    if not os.path.exists(p):
+        return
+    import pandas as pd
+    f = pd.read_csv(p, dtype={'year': str}).set_index(['company', 'year'])
+    dart = {('DB생명', '2023'): (87.43, 68.65), ('DB생명', '2024'): (90.33, 71.98), ('DB생명', '2025'): (91.13, 77.82),
+            ('흥국생명', '2023'): (76.15, 45.54), ('흥국생명', '2024'): (85.15, 60.78), ('흥국생명', '2025'): (84.86, 72.77)}
+    for k, (a, b) in dart.items():
+        # 6건 중 5건은 소수 둘째 자리까지 같음. DB생명 2023만 0.06·0.59%p 차이(FISIS 사후 수정 추정) → 1%p 안이면 같은 값으로 봄
+        assert abs(f.loc[k, 'p13'] - a) < 1.0 and abs(f.loc[k, 'p25'] - b) < 1.0, (k, f.loc[k, ['p13', 'p25']].tolist(), a, b)
 
 
 def test_schedule_summary_is_consistent():

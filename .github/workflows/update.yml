@@ -43,14 +43,17 @@ jobs:
       - id: go
         run: echo "run=${{ (steps.dart.outputs.new != '0' && steps.dart.outputs.new != '') || inputs.rebuild == true }}" >> "$GITHUB_OUTPUT"
       - if: steps.go.outputs.run == 'true'
-        name: 1b) 새 보고서의 추가 표(상각 예정표 등) + FISIS 통계
+        name: 1b) 새 보고서의 추가 표(상각 예정표·민감도 등)
         continue-on-error: true
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY || secrets.DART_KEY }}
+        run: python pipeline/collect_extra.py
+      - if: steps.go.outputs.run == 'true'
+        name: 1c) FISIS 통계 (실패한 회사·지표는 지난 값 유지)
+        continue-on-error: true
+        env:
           FISIS_API_KEY: ${{ secrets.FISIS_API_KEY || secrets.FISIS_KEY }}
-        run: |
-          python pipeline/collect_extra.py
-          python pipeline/collect_fisis.py
+        run: python pipeline/collect_fisis.py
       - if: steps.go.outputs.run == 'true'
         name: 2) 원문 표 추출 → 상각 예정표 → FISIS 지표 → 자동 검증 → 요약
         run: |

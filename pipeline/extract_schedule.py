@@ -97,6 +97,11 @@ LABEL = re.compile(r'\d+\s*년|합\s*계|총\s*계|현재가치')
 BAD_ROW = re.compile(r'위험보험료|예상보험금|보험금|사고|약정|유가증권|손실요소')
 
 
+def fmt_of(vec):
+    """예정표 형식: 30년 안팎까지 1년 단위가 이어지면 '연차별'(2024년 이후 표준), 아니면 '구간'"""
+    return '연차별' if sum(1 for (lo, hi), _ in vec if hi - lo == 1) >= 8 else '구간'
+
+
 def grid(g):
     """표 → 머리글의 값 열 이름(기간·합계)과 행별 (이름, 숫자들) — 병합 셀로 칸 위치가 어긋나도 숫자 순서로 읽음"""
     g = g.assign(row=g['row'].astype(int), col=g['col'].astype(int))
@@ -159,6 +164,8 @@ def summarize(E, mv):
     """'믿을 만한 지표인가' 판단 근거 — 안정성·변별력·순위 예측력·금액 예측력·기준 변경"""
     import json
     E = E.rename(columns={'asof': 'at'})
+    ALL = E
+    E = E[E.main_fmt]                       # 회사의 주 형식끼리만 비교(형식이 다른 표는 다른 산출 기준)
     L = E[E.vintage == '당시']
     a, b = L[L['at'] == '2024.12'].set_index('company'), L[L['at'] == '2025.12'].set_index('company')
     both = a.index.intersection(b.index)
@@ -168,7 +175,7 @@ def summarize(E, mv):
     mv = mv.assign(rr=-mv.release / (mv.open + mv.new + mv.interest + mv.adjust))
     m = a.join(mv[mv.year == '2025'].set_index('company').rr, how='inner').dropna(subset=['s1', 'rr'])
     bt = L[L.bt_ratio.notna()].groupby('at').bt_ratio.median()
-    R = E[E['at'] == '2023.12'].pivot_table(index='company', columns='report', values='s1')
+    R = ALL[ALL['at'] == '2023.12'].pivot_table(index='company', columns='report', values='s1')   # 기준 변경 탐지는 형식 구분 없이
     chg = [c for c in R.index if '2023.12' in R and '2024.12' in R and pd.notna(R.loc[c, '2023.12']) and pd.notna(R.loc[c, '2024.12'])
            and abs(R.loc[c, '2023.12'] - R.loc[c, '2024.12']) > 0.005]
     out = dict(n_company=int(E.company.nunique()), n_stable=int(len(both)),
@@ -193,11 +200,12 @@ def main():
         asof[(r.company, end)] = r.close
         if r.year == '2023':
             asof.setdefault((r.company, '2022.12'), r.open)
-    found, undisc = {}, {}
+    found, undisc, cands = {}, {}, {}
     x = x.assign(tn=x.table_no.astype(int)).sort_values(['co', 'period', 'rcept_no', 'doc', 'tn'])
     last = {}
     for (co, per, rc, doc, tno), g in x.groupby(['co', 'period', 'rcept_no', 'doc', 'tn'], sort=False):
-        targets = {k[1]: v for k, v in asof.items() if k[0] == co}
+        yr = int(per[:4])
+        targets = {k[1]: v for k, v in asof.items() if k[0] == co and k[1] in (per, f'{yr - 1}.12')}   # 그 보고서의 당기·전기 시점만
         G = grid(g)
         if G is None:
             continue
@@ -222,10 +230,22 @@ def main():
                         ok_nom = abs(nom - close) <= max(2.0, abs(close) * 0.01) if basis == '구간 합' else 0.9 * close <= nom <= 1.6 * close
                         if err <= max(1.0, abs(close) * 0.002) and ok_nom:
                             k = (co, when, per)       # 같은 기준일이라도 보고서마다 따로 (나중 보고서가 다시 낸 값과 비교)
-                            if k not in found or err < found[k]['err']:
-                                found[k] = dict(company=co, asof=when, report=per, table=int(tno), row=nm, unit=u, err=round(err, 2),
-                                                basis=basis, total=round(close, 1), nominal=round(raw * UNITS[u], 1),
-                                                vec=[(s, v * UNITS[u]) for s, v in vec])
+                            cands.setdefault(k, []).append(dict(company=co, asof=when, report=per, table=int(tno), row=nm, unit=u, err=round(err, 2),
+                                                                basis=basis, total=round(close, 1), nominal=round(raw * UNITS[u], 1),
+                                                                vec=[(s, v * UNITS[u]) for s, v in vec], fmt=fmt_of(vec)))
+    # 한 보고서에 형식이 다른 예정표가 둘 있는 회사(교보: 5년까지 1년 단위+5~10+10년 초과 / 30년까지 연차별)가 있어
+    # 회사마다 기준일을 가장 많이 덮는 형식 하나를 정해 그 형식을 우선 → 형식이 바뀌어 생기는 가짜 변동 방지
+    main_fmt = {}
+    for co in {k[0] for k in cands}:
+        cover = {}
+        for (c, when, per), L in cands.items():
+            if c == co:
+                for f in {x['fmt'] for x in L}:
+                    cover.setdefault(f, set()).add(when)
+        main_fmt[co] = max(cover, key=lambda f: (len(cover[f]), f == '연차별'))
+    for k, L in cands.items():
+        pref = [x for x in L if x['fmt'] == main_fmt[k[0]]] or L
+        found[k] = min(pref, key=lambda x: x['err'])
     # 할인 전 예정표: 합계가 기말 CSM(현재가치)보다 조금 큰 표 — 보고서마다 아직 못 찾은 기준일에만, 비율 1.0~1.2배 중 가장 가까운 시점에 대응
     exact = {(k[0], k[2]) for k in found}
     used = set()
@@ -245,17 +265,19 @@ def main():
             used.add((co, per, rc, doc, tno))
             r, when, close, u = best
             found[(co, when, per)] = dict(company=co, asof=when, report=per, table=int(tno), row=nm, unit=u, err=round(raw * UNITS[u] - close, 1),
-                                          basis='할인 전', total=round(close, 1), nominal=round(raw * UNITS[u], 1), vec=[(s_, v * UNITS[u]) for s_, v in vec])
+                                          basis='할인 전', total=round(close, 1), nominal=round(raw * UNITS[u], 1), vec=[(s_, v * UNITS[u]) for s_, v in vec],
+                                          fmt=fmt_of([(s_, v) for s_, v in vec]))
     sched, ev = [], []
     for (co, when, per), f in sorted(found.items()):
         vec, tot = f['vec'], f['nominal']             # 비중은 구간 합 기준(합계 열이 현재가치라 구간 합과 다를 수 있음)
         std = to_std(vec)
         vint = '당시' if per == when else '재공시'          # 그 시점 보고서(예측 당시) / 다음 보고서의 전기 표
-        sched.append(dict(company=co, asof=when, report=per, vintage=vint, total=f['total'], nominal=tot, basis=f['basis'], **{lb: (None if s is None else round(s, 1)) for lb, s in zip(STD_LB, std)},
+        mf = main_fmt.get(co, f['fmt'])
+        sched.append(dict(company=co, asof=when, report=per, vintage=vint, fmt=f['fmt'], main_fmt=f['fmt'] == mf, total=f['total'], nominal=tot, basis=f['basis'], **{lb: (None if s is None else round(s, 1)) for lb, s in zip(STD_LB, std)},
                           buckets=' | '.join(f"{lo:g}~{'' if hi == np.inf else f'{hi:g}'}년 {v:,.0f}" for (lo, hi), v in vec),
                           source=f"{f['report']} 보고서 표 {f['table']} · {f['row'] or '합계'} · {f['unit']}", err=f['err']))
         hp = half_point(vec, tot)
-        ev.append(dict(company=co, asof=when, report=per, vintage=vint, total=f['total'], nominal=tot, basis=f['basis'], s1=cum_share(vec, tot, 1), s5=cum_share(vec, tot, 5),
+        ev.append(dict(company=co, asof=when, report=per, vintage=vint, fmt=f['fmt'], main_fmt=f['fmt'] == mf, total=f['total'], nominal=tot, basis=f['basis'], s1=cum_share(vec, tot, 1), s5=cum_share(vec, tot, 5),
                        s10p=None if cum_share(vec, tot, 10) is None else 1 - cum_share(vec, tot, 10),
                        half=None if hp is None else (99.0 if hp == np.inf else round(hp, 2)),
                        pred1=sum(v for (lo, hi), v in vec if hi <= 1 + 1e-9) if cum_share(vec, tot, 1) is not None else None))

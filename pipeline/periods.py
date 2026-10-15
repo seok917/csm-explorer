@@ -28,3 +28,14 @@ def prev_year_end(lbl):
 
 def sort_labels(labels):
     return sorted(set(labels), key=order_key)
+
+
+def wanted(lbl, known_labels):
+    """새로 받을(추출할) 기간인가: 연간은 아직 없으면 언제든(늦게 낸 감사보고서·빠진 해 포함),
+    상반기는 이미 있는 마지막 연간보다 뒤일 때만(지난 반기는 화면 기간에 없음), 1·3분기는 다루지 않음"""
+    if lbl.endswith('분기'):
+        return False
+    if lbl.endswith('상반기'):
+        annual = [order_key(k) for k in known_labels if len(k) == 4]
+        return not annual or order_key(lbl) > max(annual)
+    return True

@@ -16,7 +16,7 @@ from lxml import etree, html as LH
 
 sys.path.insert(0, os.path.dirname(__file__))
 from build_data import SHORT
-from periods import label, order_key
+from periods import label, order_key, wanted
 
 B = os.path.join(os.path.dirname(__file__), '..')
 SNAP = os.path.join(B, 'raw', 'csm_tables.csv.gz')
@@ -168,8 +168,8 @@ def main():
         sys.exit(0 if same >= 0.99 else 1)
 
     have = pd.read_csv(FILINGS, dtype=str)
-    latest = max(order_key(label(p)) for p in have.period)
     last = {(r.co, r.period): r for r in have.itertuples()}
+    done_labels = {label(p) for p in have.period}
     audit_only = set(have[have.source == '감사보고서'].co)          # 정기보고서를 내지 않는 회사
     codes = corp_codes(key)
     todo = []
@@ -182,7 +182,7 @@ def main():
             fs, src = pick(list_filings(key, codes[co], 'A', '20240101'), '사업보고서|반기보고서|분기보고서'), '정기보고서'
         for f in fs:
             old = last.get((co, f['period']))
-            is_new = old is None and order_key(label(f['period'])) > latest
+            is_new = old is None and wanted(label(f['period']), done_labels)   # 회사마다: 없는 연간·이번 반기(늦게 낸 보고서도)
             is_fix = old is not None and (f['rcept_dt'], f['rcept_no']) > (old.rcept_dt, old.rcept_no)
             if is_new or is_fix:
                 todo.append((co, src, f, '정정' if is_fix else '신규'))
