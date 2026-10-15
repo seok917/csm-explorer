@@ -13,6 +13,7 @@ MONEY = re.compile(r'([+' + NC + r']?)\s*(?:(\d+(?:\.\d+)?)\s*조(?:\s*(\d[\d,]*
 PP = re.compile(r'([+' + NC + r']?)(\d+(?:\.\d+)?)\s*%p')
 PCT = re.compile(r'([+' + NC + r']?)(\d+(?:\.\d+)?)\s*%(?!p)')
 COUNT = re.compile(r'(\d+)\s*(건|곳|개사|개)')
+TIMES = re.compile(r'(\d+(?:\.\d+)?)\s*배')
 
 
 def _sign(s):
@@ -43,6 +44,8 @@ def extract(text):
             continue
         out.append(dict(raw=m.group(0), value=_sign(m.group(1)) * float(m.group(2)), kind='%',
                         tol=0.5 * 10 ** (-_dec(m.group(2))) + 1e-9))
+    for m in TIMES.finditer(text):
+        out.append(dict(raw=m.group(0), value=float(m.group(1)), kind='배', tol=0.5 * 10 ** (-_dec(m.group(1))) + 1e-9))
     for m in COUNT.finditer(text):
         out.append(dict(raw=m.group(0), value=float(m.group(1)), kind='개수', tol=0))
     return out
@@ -69,11 +72,12 @@ def facts_from(rec, ae=None, extra=None):
     if rec.get('assump'):
         e += list(rec['assump'].values())
     p = [x * 100 for x in (rec.get('offset'), rec.get('post_share'), rec.get('growth'), rec.get('adj_post_share'),
-                          rec.get('new_to_open')) if x is not None]
+                          rec.get('new_to_open'), rec.get('release_rate')) if x is not None]
     pp = []
     if ae:
         p += [ae.get('exp'), ae.get('act')]; pp += [ae.get('ae')]
-    f = {'억': e, '%': [x for x in p if x is not None], '%p': [x for x in pp if x is not None], '개수': []}
+    f = {'억': e, '%': [x for x in p if x is not None], '%p': [x for x in pp if x is not None], '개수': [],
+         '배': [rec['replace']] if rec.get('replace') is not None else []}
     for k, v in (extra or {}).items():
         f.setdefault(k, []).extend(v)
     return f

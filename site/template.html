@@ -67,6 +67,25 @@ h1,h2,h3{text-wrap:balance;margin:0}
 .auto p{margin:0;max-width:78ch}
 .auto small{grid-column:2;color:var(--muted);font-size:12px}
 /* 패널 */
+.cap{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:20px;margin-top:8px}
+.judge{grid-column:1/-1;background:var(--accent-soft);border-radius:var(--r);padding:10px 14px;font-size:13px}
+.judge summary{cursor:pointer;font-weight:600}
+.judge summary small{font-weight:400;color:var(--muted);margin-left:6px}
+.judge ul{margin:8px 0 2px;padding-left:18px;line-height:1.65}
+.judge b{font-weight:600}
+.cap>*{min-width:0}
+.cap h3{font-size:13px;font-weight:600;margin:0 0 6px;color:var(--ink)}
+.cap .note{font-size:12px;color:var(--muted);margin:8px 0 0;line-height:1.6}
+.cap .note b{color:var(--ink);font-weight:600}
+.cap table{width:100%;border-collapse:collapse;font-size:13px}
+.cap th,.cap td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+.cap th:first-child,.cap td:first-child{text-align:left;white-space:normal}
+.cap td small{display:block;color:var(--muted);font-size:11px}
+.lg{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--muted);margin-top:6px}
+.lg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.cap td:first-child,.cap th:first-child{min-width:8.5em}
+.cap .tblwrap{overflow-x:auto}
+@media (max-width:760px){.cap{grid-template-columns:minmax(0,1fr)}.cap table{font-size:12px}.cap th,.cap td{padding:6px 5px}.cap td:first-child small{display:none}}
 .grid2{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:16px;margin-top:16px}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;min-width:0}
 .panel h2{font-size:15px;font-weight:600;display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap}
@@ -174,6 +193,15 @@ footer{margin-top:28px;font-size:12px;color:var(--muted);border-top:1px solid va
     <section class="panel"><h2>조정 추정치 변동 요인 <small>억 원 · CSM 영향</small></h2><div class="chart" id="fac"></div></section>
     <section class="panel"><h2>가정과 실제 <small>예실차·미래 예상손해율</small></h2><div class="tblwrap" id="aeTbl"></div></section>
   </div>
+
+  <section class="panel" style="margin-top:16px" id="capPanel">
+    <h2>미래 이익 체력 <small>CSM이 언제 이익이 되고, 얼마나 새로 채워지는가</small></h2>
+    <div class="cap">
+      <div><h3>CSM 상각 예정표 <small style="font-weight:400;color:var(--muted)">기말 CSM을 이익 인식 예상 시기별로 나눈 비중</small></h3><div class="chart" id="sched"></div><div class="lg" id="schedLg"></div><p class="note" id="schedNote"></p></div>
+      <div><h3>연도별 지표</h3><div class="tblwrap" id="capTbl"></div><p class="note" id="capNote"></p></div>
+      <details class="judge" id="judge"><summary>이 예정표, 믿고 봐도 될까? <small>22개사 원문으로 검증한 결과</small></summary><ul id="judgeList"></ul></details>
+    </div>
+  </section>
 
   <section class="panel" style="margin-top:16px">
     <h2>업계 비교 <span class="metricsel" id="metricSel" role="group" aria-label="비교 지표"></span></h2>
@@ -321,7 +349,12 @@ function hbars(host, items, opt={}){
 
 /* ---------- 화면 그리기 ---------- */
 const ST={'통과':['ok','통과'],'주의':['warn','확인 필요'],'불일치':['bad','불일치'],'자료없음':['na','자료 없음']};
-const METRICS={close:['기말 CSM',r=>r.close,v=>won(v)],new:['신계약 CSM',r=>r.new,v=>won(v)],offset:['신계약 대비 조정 비율',r=>r.offset,v=>pct(v)],post_share:['전환일 이후 계약 비중',r=>r.post_share,v=>pct(v)]};
+const schedAt=(c,y)=>{ const a=(y.includes('상반기')? y.slice(0,4)+'.06' : y+'.12'); const L=(c.schedule||[]).filter(s=>s.asof===a); return L.find(s=>s.vintage==='당시')||L[L.length-1]; };
+const METRICS={close:['기말 CSM',r=>r.close,v=>won(v)],new:['신계약 CSM',r=>r.new,v=>won(v)],offset:['신계약 대비 조정 비율',r=>r.offset,v=>pct(v)],post_share:['전환일 이후 계약 비중',r=>r.post_share,v=>pct(v)],
+  release_rate:['상각률',r=>r.release_rate,v=>pct(v,1)],replace:['신계약 대체율',r=>r.replace,v=>v==null?'–':v.toFixed(2)+'배'],
+  s10p:['10년 넘어 인식될 비중',(r,c,y)=>{const s=schedAt(c,y); return s? s.s10p : null;},v=>pct(v)],
+  kics:['지급여력비율(K-ICS)',(r,c,y)=>(c.fisis&&c.fisis[y]&&c.fisis[y].kics)||null,v=>v.toFixed(0)+'%'],
+  p25:['25회차 유지율',(r,c,y)=>(c.fisis&&c.fisis[y]&&c.fisis[y].p25)||null,v=>v.toFixed(1)+'%']};
 $('metricSel').innerHTML=Object.entries(METRICS).map(([k,[n]])=>`<button type="button" data-m="${k}">${n}</button>`).join('');
 $('metricSel').addEventListener('click',e=>{const b=e.target.closest('button'); if(b){cur.metric=b.dataset.m; render(); save();}});
 $('yearSeg').addEventListener('click',e=>{const b=e.target.closest('button'); if(b&&!b.disabled){cur.year=b.dataset.y; render(); save();}});
@@ -371,13 +404,78 @@ function render(){
    ${row('연말 1년차 예상손해율 · 합계',y=>fmtp(lrBy('합계',y)?.r1))}${row('연말 1년차 예상손해율 · 건강',y=>fmtp(lrBy('건강',y)?.r1))}
    ${row('연말 현재가치 예상손해율 · 합계',y=>fmtp(lrBy('합계',y)?.rPV))}</tbody></table>
    <p style="font-size:12px;color:var(--muted);margin:8px 0 0">예실차 = 예상 − 실제(음수면 실제 보험금이 예상보다 많음). 연말 예상손해율은 「위험보험료 대비 예상보험금」 주석 기준으로, 예실차 표와 분모가 달라 수준이 아닌 연도 간 변화로 봐야 합니다.</p>`;
+  renderCap(c, r);
   // 업계
   const [mn,get,fmt]=METRICS[cur.metric];
-  const items=C.filter(x=>x.years[cur.year]&&get(x.years[cur.year])!=null).map(x=>({k:x.name,v:get(x.years[cur.year]),hl:x.name===c.name})).sort((a,b)=>b.v-a.v);
-  hbars($('ind'), items, {L:120,rowH:22,fmt, tick: cur.metric==='close'||cur.metric==='new'? (t=>(t/10000).toFixed(t%10000?1:0)+'조') : (t=>Math.round(t*100)+'%')});
+  const items=C.filter(x=>x.years[cur.year]&&get(x.years[cur.year],x,cur.year)!=null).map(x=>({k:x.name,v:get(x.years[cur.year],x,cur.year),hl:x.name===c.name})).sort((a,b)=>b.v-a.v);
+  hbars($('ind'), items, {L:120,rowH:22,fmt, empty:'이 기간에 비교할 자료가 없습니다.', tick: cur.metric==='close'||cur.metric==='new'? (t=>(t/10000).toFixed(t%10000?1:0)+'조') : cur.metric==='replace'? (t=>t.toFixed(1)+'배') : (cur.metric==='kics'||cur.metric==='p25')? (t=>Math.round(t)+'%') : (t=>Math.round(t*100)+'%')});
   // 원문 신호
   $('notes').innerHTML = c.notes.length? c.notes.map(n=>`<li><q>${esc(n.text)}</q><small>${esc(n.report)} 보고서 · ${esc(n.kind)}</small></li>`).join('') : '<li class="empty" style="border:0;padding:0">탐지된 기준 변경 문구가 없습니다.</li>';
   document.title = `${c.name} · CSM 공시 탐색기`;
+}
+
+
+/* ---------- 미래 이익 체력 ---------- */
+const BK=['1년 이내','1~2년','2~5년','5~10년','10년 초과'], BOP=[1,.78,.58,.4,.24];
+function schedRows(c){
+  const by={}; (c.schedule||[]).forEach(s=>(by[s.asof]=by[s.asof]||[]).push(s));
+  const out=[];
+  Object.keys(by).sort().forEach(a=>{ const L=by[a]; const base=L.find(s=>s.vintage==='당시')||L[L.length-1]; out.push(base);
+    L.filter(s=>s!==base && s.s1!=null && base.s1!=null && (Math.abs(s.s1-base.s1)>0.005 || Math.abs((s.s10p||0)-(base.s10p||0))>0.01))
+     .slice(-1).forEach(s=>out.push(Object.assign({restated:base},s))); });
+  return out;
+}
+function schedChart(host, rows){
+  host.innerHTML=''; if(!rows.length){ host.innerHTML='<div class="empty">이 회사의 상각 예정표를 원문에서 찾지 못했습니다.</div>'; return; }
+  const W=Math.max(260,host.clientWidth||560), rowH=30, L=W<480?70:84, R=W<480?44:56, T=4, H=T+rowH*rows.length+4; const sv=svg(W,H); host.appendChild(sv);
+  const acc=css('--accent'), x=v=>L+(W-L-R)*v;
+  rows.forEach((s,i)=>{ const yy=T+i*rowH; const tot=BK.reduce((a,k)=>a+(s.b[k]||0),0)||1; let run=0;
+    const lab = s.restated? '↳ 재공시' : s.asof + (s.vintage==='당시'? '' : '*');
+    el('text',{x:L-8,y:yy+rowH/2+4,'text-anchor':'end','font-size':12,fill:s.restated?css('--muted'):css('--ink'),'font-family':css('--f-num')},sv,lab);
+    const g=el('g',{},sv); const t=el('title',{},g, `${s.asof} 기준 · ${s.report} 보고서\n`+BK.map(k=>`${k} ${won(s.b[k])} (${pct((s.b[k]||0)/tot,1)})`).join('\n'));
+    BK.forEach((k,j)=>{ const v=(s.b[k]||0)/tot; if(v<=0) { return; } const x0=x(run), w=Math.max(0,x(run+v)-x0-1.5);
+      el('rect',{x:x0,y:yy+6,width:w,height:rowH-12,rx:2,fill:acc,'fill-opacity':BOP[j]},g); run+=v; });
+    el('text',{x:W-R+6,y:yy+rowH/2+4,'font-size':11.5,fill:css('--muted'),'font-family':css('--f-num')},sv, s.s1==null?'':pct(s.s1,1)); });
+}
+function renderCap(c, r){
+  const rows=schedRows(c); schedChart($('sched'), rows);
+  $('schedLg').innerHTML = rows.length? BK.map((k,j)=>`<span><i style="background:var(--accent);opacity:${BOP[j]}"></i>${k}</span>`).join('')+'<span style="margin-left:auto">오른쪽 숫자 = 1년 이내 비중</span>' : '';
+  const notes=[];
+  const last=[...rows].reverse().find(s=>!s.restated);
+  if(last){ const hl = last.half==null? '' : last.half>=99? ' 절반 이상이 10년 넘어서 인식됩니다.' : ` 잔액의 절반이 이익으로 인식되기까지 약 <b>${last.half.toFixed(1)}년</b>입니다.`;
+    notes.push(`${esc(last.asof)} 기준 CSM ${won(last.total)} 원 중 <b>1년 안에 ${pct(last.s1,1)}</b>, ${last.s10p!=null?`<b>10년 넘어서 ${pct(last.s10p)}</b>가`:''} 이익으로 인식될 예정입니다.${hl}`); }
+  rows.filter(s=>s.vintage==='당시'&&s.bt!=null).forEach(s=>notes.push(`${esc(s.asof)} 예정 '1년 이내' ${won(s.pred1)} → 다음 해 실제 상각 ${won(s.actual_next)} (<b>${s.bt.toFixed(2)}배</b>)`));
+  rows.filter(s=>s.restated).forEach(s=>notes.push(`<b>산출 기준 변경:</b> ${esc(s.asof)} 시점 예정표가 ${esc(s.report)} 보고서에서 다시 공시되며 1년 이내 비중이 ${pct(s.restated.s1,1)} → ${pct(s.s1,1)}로 바뀌었습니다.`));
+  if(rows.some(s=>s.vintage!=='당시'&&!s.restated)) notes.push('* 그 시점 보고서가 수집 범위 밖이라 다음 해 보고서의 전기 표를 사용');
+  if(rows.length) notes.push('예정표는 그 시점 잔액만 대상이라, 다음 해 실제 상각에는 그해 신계약분·이자부리가 더해져 예정보다 큰 것이 정상입니다. 수준보다 연도 간 안정성을 봐야 합니다.');
+  $('schedNote').innerHTML=notes.join('<br>');
+  const J=D.schedule_eval;
+  if(J){ const p1=v=>(v*100).toFixed(1)+'%p', p0=v=>Math.round(v*100)+'%';
+    $('judgeList').innerHTML=[
+      `<b>안정적인가 — 예.</b> 같은 기준(2024년 이후 연차별 공시)으로 낸 ${J.n_stable}개사의 2024→2025 변화는 '1년 이내 비중' 중앙값 ${p1(J.d_s1_median)}, '10년 초과 비중' ${p1(J.d_s10_median)}에 그쳤습니다. 해마다 출렁이는 값이 아니라 상품 구성에서 나오는 회사의 체질입니다.`,
+      `<b>회사를 구별하나 — 예.</b> 2025년 말 1년 이내 비중은 ${esc(J.s1_min_co)} ${p0(J.s1_range[0])}부터 ${esc(J.s1_max_co)} ${p0(J.s1_range[1])}까지, 10년 넘어 인식될 비중은 ${p0(J.s10_range[0])}~${p0(J.s10_range[1])}로 벌어집니다(${J.n_2025}개사).`,
+      `<b>미래를 가리키나 — 순위는 예.</b> 2024년 말 '1년 이내 비중'이 높은 회사일수록 2025년 실제 상각률도 높았습니다(순위 상관 ${J.rank_corr.toFixed(2)}, ${J.n_rank}개사).`,
+      `<b>이익 금액 예측으로 쓸 수 있나 — 아니요.</b> 다음 해 실제 상각은 예정된 '1년 이내' 금액의 중앙값 ${Object.entries(J.bt_median).map(([k,v])=>`${v.toFixed(2)}배(${esc(k)} 예정)`).join(', ')}였습니다. 예정표는 그 시점 잔액만 대상이라 다음 해 신계약·이자부리·가정 변경이 빠지기 때문입니다.`,
+      `<b>주의할 점 — 기준 변경.</b> ${J.restated_2023.map(esc).join(', ')}는 2023년 말 예정표를 2024년 보고서에서 다른 값으로 다시 공시했습니다(연차별 공시로 바뀐 해). 2023년과 2024년 이후 값을 바로 이어 비교하면 안 됩니다.`,
+      `<b>그래서</b> 수준(금액)보다 <b>모양</b>을 봅니다: 이익이 얼마나 오래, 고르게 나오는가(이익의 지속성)를 회사끼리 비교하는 지표로 씁니다.`
+    ].map(t=>`<li>${t}</li>`).join(''); } else $('judge').hidden=true;
+  // 연도별 지표
+  const ys=D.years.filter(y=>c.years[y]); const md=D.meta;
+  const F=c.fisis||{};
+  const line=(lab,f)=>`<tr><td>${lab}</td>${ys.map(y=>`<td class="num">${f(c.years[y],y)}</td>`).join('')}</tr>`;
+  const sub=(v,m,fm)=>v==null?'–':`${fm(v)}${m!=null?`<small>업계 ${fm(m)}</small>`:''}`;
+  let h=`<table><thead><tr><th>지표</th>${ys.map(y=>`<th>${esc(y.replace(' 상반기',' 상'))}</th>`).join('')}</tr></thead><tbody>`;
+  h+=line('상각률 <small style="color:var(--muted)">상각 ÷ 상각 전 잔액</small>',(x,y)=>sub(x.release_rate,md.release_rate_median&&md.release_rate_median[y],v=>pct(v,1)));
+  h+=line('신계약 대체율 <small style="color:var(--muted)">신계약 ÷ 상각</small>',(x,y)=>sub(x.replace,md.replace_median&&md.replace_median[y],v=>v.toFixed(2)+'배'));
+  h+=line('조정 중 가정 변경',(x)=>x.split?n0(x.split.assume):'–');
+  h+=line('조정 중 경험 차이 <small style="color:var(--muted)">물량·투자요소 예실차</small>',(x)=>x.split&&x.split.experience!=null?n0(x.split.experience):'–');
+  const okMul=f=>f&&f.multiple!=null&&f.prot_init>=50&&f.multiple<=40;   // 보장성 초회보험료가 너무 작거나 배수가 비정상이면 표시하지 않음
+  const fk=[['kics','지급여력비율(K-ICS) <small style="color:var(--muted)">FISIS</small>',v=>v.toFixed(1)+'%'],['p13','13회차 유지율',v=>v.toFixed(1)+'%'],['p25','25회차 유지율',v=>v.toFixed(1)+'%'],
+    ['multiple','신계약 CSM 배수 <small style="color:var(--muted)">신계약 CSM ÷ 보장성 초회보험료</small>',v=>v.toFixed(1)+'배']];
+  fk.forEach(([k,lab,fm])=>{ if(ys.some(y=>F[y]&&F[y][k]!=null)) h+=line(lab,(x,y)=>{ const f=F[y]; if(!f||f[k]==null) return '–'; if(k==='multiple'&&!okMul(f)) return '<span title="보장성 초회보험료가 작거나 다른 분류(특별계정 등)에 잡혀 배수를 계산하지 않음">·</span>'; return fm(f[k]); }); });
+  $('capTbl').innerHTML=h+'</tbody></table>';
+  const hasF=Object.keys(F).length>0;
+  $('capNote').innerHTML=(hasF?'<b>신계약 CSM 배수</b>는 보장성 상품을 팔 때 첫 회 보험료 1원당 미래 이익을 얼마나 쌓았는지(신계약 수익성)를 봅니다. 초회보험료에 일시납이 섞이거나 변액종신처럼 특별계정에 잡히면 회사마다 왜곡되므로 같은 회사의 추이로 보세요. 유지율이 오르면 해지율 가정이 덜 나빠져 CSM 조정에도 유리합니다. ':'')+'상각률이 높을수록 CSM이 빨리 이익으로 풀리고(보장 기간이 짧은 상품 비중이 큼), 대체율이 1배를 넘으면 풀린 이익보다 신계약으로 더 많이 채운 해입니다. 반기 값은 반기 누적이라 연간과 직접 비교하지 않습니다. 조정의 가정 변경·경험 차이는 금액 단위 억 원.';
 }
 
 /* ---------- 검증 현황 ---------- */

@@ -15,6 +15,11 @@ ck = pd.read_csv(f'{D}/checks.csv', dtype={'year': str}).fillna({'decision': '',
 fx = pd.read_csv(f'{D}/fix_log.csv')
 AI = json.load(open(f'{D}/ai_explanations.json', encoding='utf-8')) if os.path.exists(f'{D}/ai_explanations.json') else {}
 ns = pd.read_csv(f'{D}/note_signals.csv', dtype={'report': str})
+# 상각 예정표(있을 때만) · FISIS 지표(있을 때만)
+SCH = pd.read_csv(f'{D}/schedule.csv', dtype={'asof': str, 'report': str}) if os.path.exists(f'{D}/schedule.csv') else None
+SEV = pd.read_csv(f'{D}/schedule_eval.csv', dtype={'asof': str, 'report': str}) if os.path.exists(f'{D}/schedule_eval.csv') else None
+FIS = pd.read_csv(f'{D}/fisis_metrics.csv', dtype={'year': str}) if os.path.exists(f'{D}/fisis_metrics.csv') else None
+STD_LB = ['1년 이내', '1~2년', '2~5년', '5~10년', '10년 초과']
 from periods import sort_labels
 YEARS = sort_labels(mv.year)          # 기간 목록은 데이터에서 (새 분기 공시가 추가되면 자동 확장)
 ALIAS = {'신한라이프': ['신한', 'shinhan'], 'NH농협생명': ['농협', 'nh'], 'KB라이프': ['kb', '국민', '케이비'], 'iM라이프': ['im', '아이엠', 'dgb'],
@@ -33,9 +38,14 @@ mv['offset'] = -mv.adjust / mv.new
 mv['post_share'] = mv.close_post / mv.close
 mv['adj_post_share'] = mv.adjust_post / mv.adjust
 mv['growth'] = (mv.close - mv.open) / mv.open
+# 상각률: 그해 상각 전 잔액(기초+신계약+이자부리+조정) 중 이익으로 풀린 비율 / 대체율: 신계약 CSM ÷ 상각액(1배 초과면 풀린 것보다 많이 새로 쌓음)
+mv['release_rate'] = -mv.release / (mv.open + mv.new + mv.interest + mv.adjust)
+mv['replace'] = mv.new / -mv.release
 mv['rank'] = mv.groupby('year').close.rank(ascending=False, method='min').astype(int)
 mv['n_year'] = mv.groupby('year').company.transform('count')
 med = mv.groupby('year').offset.median()
+med_rr = mv.groupby('year').release_rate.median()
+med_rep = mv.groupby('year')['replace'].median()
 
 def summary(r):
     y = r.year; s = []; extra = {'%': [], '개수': []}
@@ -60,6 +70,11 @@ def summary(r):
         t = f"요인별로는 {FACT[neg]}({won(f[neg])}){ig(FACT[neg])} 가장 크게 줄였고"
         t += f", {FACT[pos]}({won(f[pos])}){ig(FACT[pos])} 가장 크게 늘렸습니다." if f[pos] > 0 else " 늘린 요인은 없었습니다."
         s.append(t)
+    if pd.notna(r.release_rate) and pd.notna(r['replace']):
+        half = '' if y[:4].isdigit() and len(y) == 4 else '(반기 누적) '
+        s.append(f"{half}상각률은 {r.release_rate:.1%}(업계 중앙값 {med_rr[y]:.1%})이고, 신계약 CSM이 상각액의 {r['replace']:.2f}배로 "
+                 f"{'풀린 이익보다 많이 새로 쌓았' if r['replace'] > 1 else '새로 쌓은 이익이 풀린 이익보다 적었'}습니다.")
+        extra['%'] += [med_rr[y] * 100]
     if y in med.index and not np.isnan(r.offset):
         m = med[y]
         s.append(f"신계약 대비 조정 비율은 같은 기간 업계 중앙값({m:.0%})보다 {'높' if r.offset > m else '낮'}습니다.")
@@ -70,17 +85,48 @@ def summary(r):
     extra['개수'] += [len(c), n_ok, n_bad, n_w]
     return ' '.join(s), extra
 
+def sched_of(co):
+    """상각 예정표: 기준일·보고서별 구간 금액과 평가 지표"""
+    if SCH is None:
+        return []
+    out = []
+    for _, r in SCH[SCH.company == co].iterrows():
+        e = SEV[(SEV.company == co) & (SEV['asof'] == r['asof']) & (SEV.report == r['report'])].iloc[0]   # .asof는 pandas 메서드라 [] 사용
+        nn = lambda v: None if pd.isna(v) else float(v)
+        out.append(dict(asof=r['asof'], report=r['report'], vintage=r['vintage'], total=r['total'], nominal=r['nominal'],
+                        b={lb: nn(r[lb]) for lb in STD_LB},
+                        s1=nn(e.s1), s5=nn(e.s5), s10p=nn(e.s10p), half=nn(e.half), pred1=nn(e.pred1),
+                        actual_next=nn(e.actual_next), bt=nn(e.bt_ratio), source=r['source']))
+    return out
+
+
+def fisis_of(co):
+    if FIS is None:
+        return {}
+    f = FIS[FIS.company == co]
+    return {r.year: {k: (None if pd.isna(getattr(r, k)) else float(getattr(r, k))) for k in FIS.columns if k not in ('company', 'year')}
+            for r in f.itertuples()}
+
+
 data = {'years': YEARS, 'companies': [], 'meta': {}}
 for co, g in mv.groupby('company'):
     rows = {}
     for _, r in g.iterrows():
         a = asm[(asm.company == co) & (asm.year == r.year)]
-        rows[r.year] = dict(open=r.open, new=r.new, release=r.release, interest=r.interest, adjust=r.adjust, close=r.close,
+        a0 = a.iloc[0] if len(a) else None
+        split = None
+        if a0 is not None:                       # 조정 = 가정 변경(해지율·위험률·사업비·기타) + 경험 차이(물량차이·투자요소 예실차) + 손실요소
+            assume = sum(a0[k] for k in ('lapse', 'risk', 'expense', 'other') if pd.notna(a0[k]))
+            split = dict(assume=round(float(assume), 1), experience=None if pd.isna(a0['volume']) else round(float(a0['volume']), 1),
+                         loss=None if pd.isna(a0['loss_comp']) else round(float(a0['loss_comp']), 1))
+        rows[r.year] = dict(split=split, open=r.open, new=r.new, release=r.release, interest=r.interest, adjust=r.adjust, close=r.close,
                             adjust_post=None if pd.isna(r.adjust_post) else r.adjust_post, close_post=None if pd.isna(r.close_post) else r.close_post,
                             offset=None if pd.isna(r.offset) else round(r.offset, 4), post_share=None if pd.isna(r.post_share) else round(r.post_share, 4),
                             growth=round(r.growth, 4), rank=int(r['rank']), n=int(r.n_year), source=r.source,
                             assump={FACT[k]: float(a.iloc[0][k]) for k in FACT if len(a) and pd.notna(a.iloc[0][k])} or None,
-                            adj_post_share=None if pd.isna(r.adj_post_share) else round(r.adj_post_share, 4))
+                            adj_post_share=None if pd.isna(r.adj_post_share) else round(r.adj_post_share, 4),
+                            release_rate=None if pd.isna(r.release_rate) else round(r.release_rate, 4),
+                            replace=None if pd.isna(r['replace']) else round(r['replace'], 3))
         txt, extra = summary(r)
         rows[r.year]['summary'] = txt
         g = verify(txt, facts_from(rows[r.year], extra=extra))      # 규칙 기반 요약도 숫자 대조
@@ -99,7 +145,8 @@ for co, g in mv.groupby('company'):
         lossratio=[dict(year=int(x.year), cat=x.cat, b1=x.b1, r1=None if pd.isna(x.r1) else round(x.r1, 2),
                         rPV=None if pd.isna(x.rPV) else round(x.rPV, 2)) for x in l.itertuples()],
         checks=[dict(year=x.year, rule=x.rule, status=x.status, detail=x.detail, decision=x.decision, note=x.note) for x in c.itertuples()],
-        notes=[dict(report=x.report, kind=x.kind, text=x.text.strip()) for x in n.itertuples()]))
+        notes=[dict(report=x.report, kind=x.kind, text=x.text.strip()) for x in n.itertuples()],
+        schedule=sched_of(co), fisis=fisis_of(co)))
 data['companies'].sort(key=lambda d: -(d['years'].get('2025') or d['years'].get('2024'))['close'])
 data['fixes'] = fx.to_dict('records')
 # 원문 표 자동 추출 결과 (자동 vs 수작업 판독값)
@@ -124,9 +171,12 @@ if os.path.exists(f'{D}/extract_report.csv'):
                            match=int(ex.status.isin(['일치', '일치(추가값)']).sum()), extra=int((ex.status == '일치(추가값)').sum()),
                            corrected=sum(c['verdict'] == '자동값 채택' for c in cases), overridden=int(len(ov)),
                            cases=sorted(cases, key=lambda c: c['verdict'] != '자동값 채택'))
+if os.path.exists(f'{D}/schedule_summary.json'):
+    data['schedule_eval'] = json.load(open(f'{D}/schedule_summary.json', encoding='utf-8'))
 data['ai_stats'] = {k: sum(1 for v in AI.values() if v['status'] == k) for k in ('ok', 'fixed', 'rejected')}
 data['meta'] = dict(n_company=len(data['companies']), n_checks=int(len(ck)), n_reports=109,
                     check_counts=ck.status.value_counts().to_dict(), reviewed=int((ck.status.isin(['불일치','주의']) & (ck.decision != '')).sum()), flagged=int(ck.status.isin(['불일치','주의']).sum()), offset_median={k: round(v, 4) for k, v in med.items()},
+                    release_rate_median={k: round(v, 4) for k, v in med_rr.items()}, replace_median={k: round(v, 3) for k, v in med_rep.items()},
                     built=pd.Timestamp.now(tz='Asia/Seoul').strftime('%Y-%m-%d'))
 os.makedirs(f'{D}/../site', exist_ok=True)
 def clean(o):   # NaN·numpy 값 → JSON 표준값

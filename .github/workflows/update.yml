@@ -43,9 +43,20 @@ jobs:
       - id: go
         run: echo "run=${{ (steps.dart.outputs.new != '0' && steps.dart.outputs.new != '') || inputs.rebuild == true }}" >> "$GITHUB_OUTPUT"
       - if: steps.go.outputs.run == 'true'
-        name: 2) 원문 표 추출 → 자동 검증 → 요약
+        name: 1b) 새 보고서의 추가 표(상각 예정표 등) + FISIS 통계
+        continue-on-error: true
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY || secrets.DART_KEY }}
+          FISIS_API_KEY: ${{ secrets.FISIS_API_KEY || secrets.FISIS_KEY }}
+        run: |
+          python pipeline/collect_extra.py
+          python pipeline/collect_fisis.py
+      - if: steps.go.outputs.run == 'true'
+        name: 2) 원문 표 추출 → 상각 예정표 → FISIS 지표 → 자동 검증 → 요약
         run: |
           python pipeline/extract_movement.py
+          python pipeline/extract_schedule.py
+          python pipeline/build_fisis.py
           python pipeline/validate.py
           python pipeline/export_web.py
       - if: steps.go.outputs.run == 'true'

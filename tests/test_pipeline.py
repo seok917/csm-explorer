@@ -244,6 +244,72 @@ def test_ai_style_guard_retry():           # 숫자는 맞아도 원인 추정·
         os.environ.pop('ANTHROPIC_API_KEY', None); shutil.rmtree(tmp)
 
 
+# ---------- 6. 미래 이익 체력: 상각률·대체율·상각 예정표 ----------
+def test_release_rate_and_replace_identity():
+    for c in WEB['companies']:
+        for y, r in c['years'].items():
+            if r.get('release_rate') is None:
+                continue
+            base = r['open'] + r['new'] + r['interest'] + r['adjust']
+            assert abs(r['release_rate'] * base + r['release']) <= base * 0.00005 + 0.5, (c['name'], y)   # 비율은 소수 4자리 반올림
+            assert abs(r['replace'] * -r['release'] - r['new']) <= max(1, r['new'] * 0.002), (c['name'], y)
+
+
+def test_guard_reads_times():
+    n = {x['raw']: x['value'] for x in extract('신계약 CSM이 상각액의 2.24배')}
+    assert n['2.24배'] == 2.24
+    assert verify('대체율 2.24배', {'배': [2.239]})['ok'] and not verify('대체율 2.42배', {'배': [2.239]})['ok']
+
+
+def test_schedule_bucket_labels():
+    import extract_schedule as S, numpy as np
+    assert S.buckets(['구분', '1년이내', '1년초과~2년이내', '2년초과~5년이내', '합 계']) == [None, (0, 1), (1, 2), (2, 5), 'total']
+    b = S.buckets(['1년', '2년', '10년', '11년~15년', '30년 이후', '현재가치'])
+    assert b[0] == (0, 1) and b[1] == (1, 2) and b[2] == (2, 10) and b[3] == (10, 15) and b[4] == (30, np.inf) and b[5] == 'total', b
+    b = S.buckets(['1년이내', '1년초과~2년이내', '10년초과'])
+    assert b == [(0, 1), (1, 2), (10, np.inf)], b
+
+
+def test_schedule_totals_match_close():
+    """예정표는 합계가 그 시점 기말 CSM과 맞는 표만 채택 — 구간 합도 잔액과 맞아야 함(구간 해석 오류 탐지)"""
+    import pandas as pd
+    p = os.path.join(D, 'schedule.csv')
+    if not os.path.exists(p):
+        return
+    sc = pd.read_csv(p, dtype={'asof': str})
+    for r in sc.itertuples():
+        if r.basis == '할인 전':                          # 할인 전 금액으로 공시한 회사: 구간 합이 현재가치보다 조금 큼
+            assert 1.0 <= r.nominal / r.total <= 1.2, (r.company, r.asof, r.total, r.nominal)
+        else:
+            assert abs(r.total - r.nominal) <= max(2, abs(r.total) * 0.01) or r.basis == '합계 열', (r.company, r.asof, r.total, r.nominal)
+        vals = [getattr(r, f'_{i}') for i in range(8, 13)]
+        if any(pd.isna(v) for v in vals):                # 구간이 표준 경계를 가로지르면(예: 1~3년) 표준 5구간 합계는 비교하지 않음
+            continue
+        parts = sum(vals)
+        assert abs(parts - r.nominal) <= max(2, abs(r.nominal) * 0.002), (r.company, r.asof, parts, r.nominal)
+
+
+def test_fisis_kics_matches_dart():
+    """FISIS 지급여력비율 = DART 사업보고서의 지급여력비율 (두 출처 대조) — 신한라이프 2023"""
+    p = os.path.join(D, 'fisis_metrics.csv')
+    if not os.path.exists(p):
+        return
+    import pandas as pd
+    f = pd.read_csv(p, dtype={'year': str}).set_index(['company', 'year'])
+    assert abs(f.loc[('신한라이프', '2023'), 'kics'] - 250.8) < 0.1
+
+
+def test_schedule_summary_is_consistent():
+    p = os.path.join(D, 'schedule_summary.json')
+    if not os.path.exists(p):
+        return
+    j = json.load(open(p, encoding='utf-8'))
+    assert j['n_company'] == 22 and j['n_stable'] >= 10
+    assert j['d_s1_median'] < 0.01                       # 같은 기준이면 해마다 거의 그대로
+    assert 0 < j['s1_range'][0] < j['s1_range'][1] < 0.5
+    assert all(1 < v < 3 for v in j['bt_median'].values())   # 실제 상각 > 예정 1년 이내(신계약·이자부리 추가)
+
+
 if __name__ == '__main__':
     tests = [v for k, v in dict(globals()).items() if k.startswith('test_')]
     fail = 0

@@ -93,37 +93,94 @@ def half_point(vec, total):
     return None
 
 
-def parse_table(g):
-    """표 → [(행 이름, [(구간, 금액)], 합계 열 값, 단위 후보)]
-    병합 셀 때문에 칸 위치가 행마다 어긋나므로, 각 행의 숫자 칸을 순서대로 모아 구간 수(+합계 열)와 맞으면 채택"""
+LABEL = re.compile(r'\d+\s*년|합\s*계|총\s*계|현재가치')
+BAD_ROW = re.compile(r'위험보험료|예상보험금|보험금|사고|약정|유가증권|손실요소')
+
+
+def grid(g):
+    """표 → 머리글의 값 열 이름(기간·합계)과 행별 (이름, 숫자들) — 병합 셀로 칸 위치가 어긋나도 숫자 순서로 읽음"""
     g = g.assign(row=g['row'].astype(int), col=g['col'].astype(int))
     v = g.pivot_table(index='row', columns='col', values='value', aggfunc='first').sort_index().sort_index(axis=1).fillna('')
     unit_txt = ' '.join(v.astype(str).values.ravel()) + ' ' + g.ctx.iloc[0]
     units = [u for u in UNITS if re.search(r'단위\s*[:：]?\s*' + u, unit_txt)] or list(UNITS)
-    hdr = None
-    for r in v.index:
-        bk = buckets([str(x) for x in v.loc[r]])
-        if sum(isinstance(b, tuple) for b in bk) >= 2:
-            hdr = r; break
+    hdr = next((r for r in v.index if sum(isinstance(b, tuple) for b in buckets([str(x) for x in v.loc[r]])) >= 2), None)
     if hdr is None:
-        return []
-    bk = [b for b in buckets([str(x) for x in v.loc[hdr]]) if b is not None]
-    spans = [b for b in bk if isinstance(b, tuple)]
-    has_tot = 'total' in bk and bk.index('total') == len(bk) - 1
-    need = len(spans) + (1 if has_tot else 0)
-    out = []
+        return None
+    labels = [str(c).strip() for c in v.loc[hdr] if LABEL.search(str(c)) and num(str(c)) is None]
+    rows = []
     for r in v.index[v.index > hdr]:
         cells = [str(c).strip() for c in v.loc[r]]
         nums = [num(c) for c in cells if c and num(c) is not None]
-        name = ' '.join(c for c in cells if c and num(c) is None)
-        if len(nums) != need:
-            continue
-        out.append((name, list(zip(spans, nums[:len(spans)])), nums[-1] if has_tot else None))
+        if nums:
+            rows.append((' '.join(c for c in cells if c and num(c) is None), nums))
+    lens = pd.Series([len(n) for _, n in rows])
+    if len(lens) and lens.mode().iloc[0] == len(labels) + 1 and buckets(labels)[-1:] != ['total']:
+        labels = labels + ['합계(머리글 없음)']                # 행마다 숫자가 하나 더 있으면 끝 열은 이름 없는 합계 열
+    return dict(labels=labels, rows=rows, units=units, text=unit_txt)
+
+
+def joined(prev, cur):
+    """가로로 긴 예정표가 원문에서 두 표(1~8년 / 9년~)로 쪼개진 경우 이어 붙임
+    조건: 뒤 표의 첫 기간이 1년보다 뒤에서 시작하고(예: '9년', '8년 초과 9년 이하'), 앞 표 마지막 기간과 이어지며, 행 수가 같음"""
+    if not prev or not prev['labels'] or not cur['labels']:
+        return None
+    n_prev = [int(v) for v in re.findall(r'(\d+)\s*년', prev['labels'][-1])]
+    n_cur = [int(v) for v in re.findall(r'(\d+)\s*년', cur['labels'][0])]
+    if not n_prev or not n_cur or min(n_cur) <= 1 or min(n_cur) not in (max(n_prev), max(n_prev) + 1):
+        return None
+    if buckets(prev['labels'])[-1] == 'total':
+        return None
+    pr = [r for r in prev['rows'] if len(r[1]) == len(prev['labels'])]
+    cr = [r for r in cur['rows'] if len(r[1]) == len(cur['labels'])]
+    if len(pr) != len(cr) or not pr:
+        return None
+    return dict(labels=prev['labels'] + cur['labels'], rows=[(a[0], a[1] + b[1]) for a, b in zip(pr, cr)],
+                units=prev['units'], text=prev['text'] + ' ' + cur['text'])
+
+
+def candidates(G):
+    """[(행 이름, [(구간, 금액)], 합계 열 값, 단위 후보)]"""
+    bk = buckets(G['labels'])
+    spans = [b for b in bk if isinstance(b, tuple)]
+    has_tot = bool(bk) and bk[-1] == 'total'
+    need = len(spans) + (1 if has_tot else 0)
+    if len(spans) < 4 or len(bk) != need:
+        return []
+    out = [(nm, list(zip(spans, nums[:len(spans)])), nums[-1] if has_tot else None)
+           for nm, nums in G['rows'] if len(nums) == need and not BAD_ROW.search(nm)]
     body = [o for o in out if not re.search(r'합\s*계|총\s*계|소\s*계', o[0])]
     if len(body) > 1:
         out.append(('행 합', [(s_, sum(o[1][i][1] for o in body)) for i, s_ in enumerate(spans)],
                     sum(o[2] for o in body) if has_tot else None))
-    return [(nm, vec, tot, units) for nm, vec, tot in out]
+    return [(nm, vec, tot, G['units']) for nm, vec, tot in out]
+
+
+def summarize(E, mv):
+    """'믿을 만한 지표인가' 판단 근거 — 안정성·변별력·순위 예측력·금액 예측력·기준 변경"""
+    import json
+    E = E.rename(columns={'asof': 'at'})
+    L = E[E.vintage == '당시']
+    a, b = L[L['at'] == '2024.12'].set_index('company'), L[L['at'] == '2025.12'].set_index('company')
+    both = a.index.intersection(b.index)
+    d1 = (b.loc[both, 's1'] - a.loc[both, 's1']).abs()
+    d10 = (b.loc[both, 's10p'] - a.loc[both, 's10p']).abs().dropna()
+    x25 = b.dropna(subset=['s1'])
+    mv = mv.assign(rr=-mv.release / (mv.open + mv.new + mv.interest + mv.adjust))
+    m = a.join(mv[mv.year == '2025'].set_index('company').rr, how='inner').dropna(subset=['s1', 'rr'])
+    bt = L[L.bt_ratio.notna()].groupby('at').bt_ratio.median()
+    R = E[E['at'] == '2023.12'].pivot_table(index='company', columns='report', values='s1')
+    chg = [c for c in R.index if '2023.12' in R and '2024.12' in R and pd.notna(R.loc[c, '2023.12']) and pd.notna(R.loc[c, '2024.12'])
+           and abs(R.loc[c, '2023.12'] - R.loc[c, '2024.12']) > 0.005]
+    out = dict(n_company=int(E.company.nunique()), n_stable=int(len(both)),
+               d_s1_median=round(float(d1.median()), 4), d_s10_median=round(float(d10.median()), 4),
+               s1_range=[round(float(x25.s1.min()), 4), round(float(x25.s1.max()), 4)],
+               s10_range=[round(float(x25.s10p.min()), 4), round(float(x25.s10p.max()), 4)], n_2025=int(len(x25)),
+               s1_min_co=x25.s1.idxmin(), s1_max_co=x25.s1.idxmax(),
+               rank_corr=round(float(m.s1.corr(m.rr, method='spearman')), 2), n_rank=int(len(m)),
+               bt_median={k: round(float(v), 2) for k, v in bt.items()},
+               restated_2023=sorted(chg))
+    json.dump(out, open(os.path.join(D, 'schedule_summary.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    return out
 
 
 def main():
@@ -136,23 +193,59 @@ def main():
         asof[(r.company, end)] = r.close
         if r.year == '2023':
             asof.setdefault((r.company, '2022.12'), r.open)
-    found = {}
-    for (co, per, rc, doc, tno), g in x.groupby(['co', 'period', 'rcept_no', 'doc', 'table_no'], sort=False):
+    found, undisc = {}, {}
+    x = x.assign(tn=x.table_no.astype(int)).sort_values(['co', 'period', 'rcept_no', 'doc', 'tn'])
+    last = {}
+    for (co, per, rc, doc, tno), g in x.groupby(['co', 'period', 'rcept_no', 'doc', 'tn'], sort=False):
         targets = {k[1]: v for k, v in asof.items() if k[0] == co}
-        for nm, vec, tcol, units in parse_table(g):
+        G = grid(g)
+        if G is None:
+            continue
+        pk = (co, per, rc, doc)
+        prev = last.get(pk); last[pk] = dict(G, tn=tno)
+        J = joined(prev, G) if prev and 0 < tno - prev['tn'] <= 3 else None     # 사이에 주석 표가 끼어 있을 수 있음
+        if '마진' not in G['text'] and not (J and '마진' in J['text']):   # CSM 표가 아니면 제외(합계가 우연히 맞는 다른 표 방지)
+            continue
+        for nm, vec, tcol, units in candidates(G) + (candidates(J) if J else []):
             raw = sum(v for _, v in vec)
+            if raw == 0 or max(abs(v) for _, v in vec) > 0.9 * abs(raw):          # 한 구간에 몰린 표는 예정표가 아님
+                continue
+            if re.search(r'합\s*계|총\s*계|행 합', nm) and re.search(r'인식|상각', G['text'] + (J['text'] if J else '')) and '재보험' not in g.ctx.iloc[0][-60:]:
+                undisc.setdefault((co, per, rc, doc, tno, nm), (vec, units))     # 할인 전 예정표 후보(아래에서 대응)
             for u in units:
                 for basis, tot in (('구간 합', raw * UNITS[u]), ('합계 열', None if tcol is None else tcol * UNITS[u])):
                     if tot is None:
                         continue
                     for when, close in targets.items():
                         err = abs(tot - close)
-                        if err <= max(1.0, abs(close) * 0.002):
+                        nom = raw * UNITS[u]           # 구간 합: 합계 열(현재가치)과 같거나, 할인 전 금액이라 조금 클 수 있음
+                        ok_nom = abs(nom - close) <= max(2.0, abs(close) * 0.01) if basis == '구간 합' else 0.9 * close <= nom <= 1.6 * close
+                        if err <= max(1.0, abs(close) * 0.002) and ok_nom:
                             k = (co, when, per)       # 같은 기준일이라도 보고서마다 따로 (나중 보고서가 다시 낸 값과 비교)
                             if k not in found or err < found[k]['err']:
                                 found[k] = dict(company=co, asof=when, report=per, table=int(tno), row=nm, unit=u, err=round(err, 2),
                                                 basis=basis, total=round(close, 1), nominal=round(raw * UNITS[u], 1),
                                                 vec=[(s, v * UNITS[u]) for s, v in vec])
+    # 할인 전 예정표: 합계가 기말 CSM(현재가치)보다 조금 큰 표 — 보고서마다 아직 못 찾은 기준일에만, 비율 1.0~1.2배 중 가장 가까운 시점에 대응
+    exact = {(k[0], k[2]) for k in found}
+    used = set()
+    for (co, per, rc, doc, tno, nm), (vec, units) in undisc.items():
+        if (co, per) in exact or (co, per, rc, doc, tno) in used:   # 한 표는 한 시점에만                         # 그 보고서에 정확히 맞는 표가 있으면 할인 전 대응은 하지 않음
+            continue
+        raw = sum(v for _, v in vec)
+        best = None
+        yr = int(per[:4])
+        allowed = {per, f'{yr - 1}.12'} if per.endswith('.12') else {per, f'{yr - 1}.12'}   # 그 보고서의 당기·전기 시점만
+        for u in units:
+            for when, close in {k[1]: v for k, v in asof.items() if k[0] == co and k[1] in allowed}.items():
+                r = raw * UNITS[u] / close if close else 0
+                if 1.0 <= r <= 1.2 and (co, when, per) not in found and (best is None or r < best[0]):
+                    best = (r, when, close, u)
+        if best:
+            used.add((co, per, rc, doc, tno))
+            r, when, close, u = best
+            found[(co, when, per)] = dict(company=co, asof=when, report=per, table=int(tno), row=nm, unit=u, err=round(raw * UNITS[u] - close, 1),
+                                          basis='할인 전', total=round(close, 1), nominal=round(raw * UNITS[u], 1), vec=[(s_, v * UNITS[u]) for s_, v in vec])
     sched, ev = [], []
     for (co, when, per), f in sorted(found.items()):
         vec, tot = f['vec'], f['nominal']             # 비중은 구간 합 기준(합계 열이 현재가치라 구간 합과 다를 수 있음)
@@ -171,6 +264,7 @@ def main():
     rel = {(r.company, r.year): -r.release for r in mv.itertuples()}
     E['actual_next'] = [rel.get((r.company, str(int(r.asof[:4]) + 1))) if r.asof.endswith('.12') else None for r in E.itertuples()]
     E['bt_ratio'] = E.actual_next / E.pred1
+    summarize(E, mv)
     S.to_csv(os.path.join(D, 'schedule.csv'), index=False, encoding='utf-8-sig')
     E.round(4).to_csv(os.path.join(D, 'schedule_eval.csv'), index=False, encoding='utf-8-sig')
     print(f'예정표 {len(S)}건 (회사 {S.company.nunique() if len(S) else 0}곳) · 백테스트 {E.bt_ratio.notna().sum()}건')
