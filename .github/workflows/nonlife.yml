@@ -8,8 +8,8 @@ on:
         default: 'discover'
 permissions:
   contents: write
-concurrency:
-  group: csm-write
+concurrency:                       # 손보 단계별로 따로 줄 세움(생보 쓰기 작업·다른 단계와 겹쳐도 대기 중인 실행이 취소되지 않게)
+  group: nonlife-${{ inputs.step }}
   cancel-in-progress: false
 jobs:
   run:
@@ -44,5 +44,4 @@ jobs:
           git add segments/
           if git diff --cached --quiet; then echo "변경 없음"; exit 0; fi
           git commit -m "손보 수집: $STEP (GitHub Actions)"
-          git pull --rebase
-          git push
+          for i in 1 2 3; do git pull --rebase && git push && break; sleep 5; done
