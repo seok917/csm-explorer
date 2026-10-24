@@ -29,6 +29,18 @@ ALIAS = {'신한라이프': ['신한', 'shinhan'], 'NH농협생명': ['농협', 
          'BNP카디프생명': ['bnp', '카디프'], '교보라이프플래닛': ['라이프플래닛', '교보라플'], '푸본현대생명': ['푸본', '현대라이프'],
          '처브라이프': ['처브', 'chubb'], '메트라이프': ['met', '메트'], '미래에셋생명': ['미래에셋'], '흥국생명': ['흥국'], '동양생명': ['동양'],
          '삼성생명': ['삼성'], '한화생명': ['한화'], '교보생명': ['교보'], '라이나생명': ['라이나', 'chubb라이나'], '하나생명': ['하나']}
+SEGS = {   # 화면 설정(업권별) — 같은 템플릿을 생보(index.html)·손보(nonlife.html)에 씀
+    'life': dict(key='life', label='생명보험', page='index.html', default='신한라이프', ex='신한, 삼성, 농협',
+                 quick=['신한라이프', '삼성생명', '한화생명', '교보생명', 'NH농협생명', '미래에셋생명']),
+    'nonlife': dict(key='nonlife', label='손해보험', page='nonlife.html', default='DB손해보험', ex='DB, 삼성화재, 현대',
+                    quick=['DB손해보험', '삼성화재', '메리츠화재', '현대해상', 'KB손해보험', '한화손해보험']),
+}
+if seg.SEG == 'nonlife':
+    ALIAS = {'삼성화재': ['삼성', 'samsung'], 'DB손해보험': ['db', '동부', 'db손보'], '현대해상': ['현대', 'hyundai'], 'KB손해보험': ['kb', '케이비', 'kb손보'],
+             '메리츠화재': ['메리츠', 'meritz'], '한화손해보험': ['한화', '한화손보'], '롯데손해보험': ['롯데', '롯데손보'], '흥국화재': ['흥국'],
+             'NH농협손해보험': ['농협', 'nh', 'nh손보'], '하나손해보험': ['하나', '하나손보'], 'MG손해보험': ['mg', '엠지', '예별'],
+             'AXA손해보험': ['axa', '악사'], 'AIG손해보험': ['aig', '에이아이지'], '신한EZ손해보험': ['신한', 'ez', '신한ez'],
+             '카카오페이손해보험': ['카카오', 'kakao'], '캐롯손해보험': ['캐롯', 'carrot']}
 FACT = {'lapse': '해지율 가정', 'risk': '위험률 가정', 'expense': '사업비 가정', 'other': '기타 가정', 'volume': '물량차이·투자요소 예실차', 'loss_comp': '손실요소'}
 
 def won(x):          # 억 원 → '7조 5,537억 원'
@@ -40,9 +52,16 @@ mv['offset'] = -mv.adjust / mv.new
 mv['post_share'] = mv.close_post / mv.close
 mv['adj_post_share'] = mv.adjust_post / mv.adjust
 mv['growth'] = (mv.close - mv.open) / mv.open
+for k in ('offset', 'post_share', 'adj_post_share', 'growth'):   # 기초·신계약·기말이 0인 해(첫 판매 해, 계약이전 해) → 비율 없음
+    mv[k] = mv[k].replace([np.inf, -np.inf], np.nan)
 # 상각률: 그해 상각 전 잔액(기말+상각 = 기초+신계약+이자부리+조정+기타) 중 이익으로 풀린 비율 / 대체율: 신계약 CSM ÷ 상각액(1배 초과면 풀린 것보다 많이 새로 쌓음)
 mv['release_rate'] = -mv.release / (mv.close - mv.release)      # 상각 전 잔액 = 기말 + 상각 (합병 등 기타 변동까지 포함)
 mv['replace'] = mv.new / -mv.release
+for k in ('transfer', 'other'):                                  # 손보: 계약이전·합병, CSM 열의 손실부담 행 (생보에는 없음)
+    if k not in mv:
+        mv[k] = np.nan
+gone = mv.close <= 0                                             # 계약을 모두 넘긴 해(엠지손보 2025: 예별손보로 계약이전) → 비율 지표 없음
+mv.loc[gone, ['release_rate', 'replace']] = np.nan
 mv['rank'] = mv.groupby('year').close.rank(ascending=False, method='min').astype(int)
 mv['n_year'] = mv.groupby('year').company.transform('count')
 med = mv.groupby('year').offset.median()
@@ -52,8 +71,11 @@ med_rep = mv.groupby('year')['replace'].median()
 def summary(r):
     y = r.year; s = []; extra = {'%': [], '개수': []}
     d = r.close - r.open
-    s.append(f"{y} {r.company}의 CSM은 기초 {won(r.open)}에서 기말 {won(r.close)}으로 {won(abs(d))} {'늘었' if d >= 0 else '줄었'}습니다(순증률 {r.growth:+.1%}).")
+    s.append(f"{y} {r.company}의 CSM은 기초 {won(r.open)}에서 기말 {won(r.close)}으로 {won(abs(d))} {'늘었' if d >= 0 else '줄었'}습니다"
+             + (f"(순증률 {r.growth:+.1%})." if pd.notna(r.growth) else "."))
     s.append(f"신계약으로 {won(r.new)}이 쌓였고, 상각 {won(r.release)}과 이자부리 {won(r.interest)}이 반영됐습니다.")
+    if pd.notna(r.transfer):
+        s.append(f"계약이전·합병으로 {won(abs(r.transfer))}이 {'넘어왔' if r.transfer > 0 else '넘어갔'}습니다.")
     if r.adjust < 0:
         t = f"조정 추정치 변동 {won(r.adjust)}은 신계약 CSM의 {r.offset:.0%}에 해당합니다"
         if pd.notna(r.adj_post_share) and r.adjust_post < 0 and r.adj_post_share <= 1:
@@ -97,7 +119,7 @@ def sched_of(co):
         nn = lambda v: None if pd.isna(v) else float(v)
         out.append(dict(asof=r['asof'], report=r['report'], vintage=r['vintage'], fmt=r['fmt'], main=bool(r['main_fmt']), total=r['total'], nominal=r['nominal'],
                         b={lb: nn(r[lb]) for lb in STD_LB},
-                        s1=nn(e.s1), s5=nn(e.s5), s10p=nn(e.s10p), half=nn(e.half), pred1=nn(e.pred1),
+                        s1=nn(e.s1), s5=nn(e.s5), s10p=nn(e.s10p), half=nn(e.half), pred1=nn(e.pred1), tail_from=nn(e.get('tail_from')),
                         actual_next=nn(e.actual_next), bt=nn(e.bt_ratio), source=r['source']))
     return out
 
@@ -142,9 +164,10 @@ for co, g in mv.groupby('company'):
         rows[r.year] = dict(split=split, open=r.open, new=r.new, release=r.release, interest=r.interest, adjust=r.adjust, close=r.close,
                             adjust_post=None if pd.isna(r.adjust_post) else r.adjust_post, close_post=None if pd.isna(r.close_post) else r.close_post,
                             offset=None if pd.isna(r.offset) else round(r.offset, 4), post_share=None if pd.isna(r.post_share) else round(r.post_share, 4),
-                            growth=round(r.growth, 4), rank=int(r['rank']), n=int(r.n_year), source=r.source,
+                            growth=None if pd.isna(r.growth) else round(r.growth, 4), rank=int(r['rank']), n=int(r.n_year), source=r.source,
                             assump={FACT[k]: float(a.iloc[0][k]) for k in FACT if len(a) and pd.notna(a.iloc[0][k])} or None,
                             adj_post_share=None if pd.isna(r.adj_post_share) else round(r.adj_post_share, 4),
+                            transfer=None if pd.isna(r.transfer) else r.transfer, other=None if pd.isna(r.other) else r.other,
                             release_rate=None if pd.isna(r.release_rate) else round(r.release_rate, 4),
                             replace=None if pd.isna(r['replace']) else round(r['replace'], 3))
         txt, extra = summary(r)
@@ -168,6 +191,7 @@ for co, g in mv.groupby('company'):
         notes=[dict(report=x.report, kind=x.kind, text=x.text.strip()) for x in n.itertuples()],
         schedule=sched_of(co), fisis=fisis_of(co), sens=sens_of(co)))
 data['companies'].sort(key=lambda d: -(d['years'].get('2025') or d['years'].get('2024'))['close'])
+rules = sorted(set(ck.rule))
 data['fixes'] = fx.to_dict('records')
 # 원문 표 자동 추출 결과 (자동 vs 수작업 판독값)
 if os.path.exists(f'{D}/extract_report.csv'):
@@ -201,13 +225,17 @@ data['ai_stats'] = {k: sum(1 for v in AI.values() if v['status'] == k) for k in 
 data['meta'] = dict(n_company=len(data['companies']), n_checks=int(len(ck)), n_reports=int(len(pd.read_csv(f'{D}/../raw/filings.csv'))),
                     check_counts=ck.status.value_counts().to_dict(), reviewed=int((ck.status.isin(['불일치','주의']) & (ck.decision != '')).sum()), flagged=int(ck.status.isin(['불일치','주의']).sum()), offset_median={k: round(v, 4) for k, v in med.items()},
                     release_rate_median={k: round(v, 4) for k, v in med_rr.items()}, replace_median={k: round(v, 3) for k, v in med_rep.items()},
-                    built=pd.Timestamp.now(tz='Asia/Seoul').strftime('%Y-%m-%d'))
+                    built=pd.Timestamp.now(tz='Asia/Seoul').strftime('%Y-%m-%d'),
+                    seg=SEGS[seg.SEG], segs=[dict(key=v['key'], label=v['label'], page=v['page']) for v in SEGS.values()],
+                    rules=rules, n_rules=len({r.split(' ')[0] for r in rules}),
+                    has=dict(assump=bool(len(asm)), ae=bool(len(ae)), lossratio=bool(len(lr)), notes=bool(len(ns))))
 def clean(o):   # NaN·numpy 값 → JSON 표준값
     if isinstance(o, dict): return {k: clean(v) for k, v in o.items()}
     if isinstance(o, list): return [clean(v) for v in o]
     if isinstance(o, (np.integer,)): return int(o)
-    if isinstance(o, (float, np.floating)): return None if np.isnan(o) else round(float(o), 4)
+    if isinstance(o, (float, np.floating)): return None if (np.isnan(o) or np.isinf(o)) else round(float(o), 4)
     return o
 json.dump(clean(data), open(f'{D}/web.json', 'w'), ensure_ascii=False, separators=(',', ':'), allow_nan=False)
 print(f"회사 {len(data['companies'])} · 요약 문장 {sum(len(c['years']) for c in data['companies'])}개 · {time.perf_counter()-t0:.2f}초 · {os.path.getsize(f'{D}/web.json')/1024:.0f}KB")
-print(data['companies'][[c['name'] for c in data['companies']].index('신한라이프')]['years']['2025']['summary'])
+_d = SEGS[seg.SEG]['default']
+print(data['companies'][[c['name'] for c in data['companies']].index(_d)]['years']['2025']['summary'])

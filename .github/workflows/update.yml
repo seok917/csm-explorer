@@ -1,4 +1,4 @@
-# 분기 자동 업데이트: 매주 DART에서 새 공시를 확인하고, 새 보고서가 있으면
+# 분기 자동 업데이트: 매주 DART에서 새 공시를 확인하고(생보 → 손보), 새 보고서가 있으면
 # 수집 → 원문 표 추출 → 자동 검증 → 요약 → AI 설명(숫자·표현 대조) → 테스트 → 커밋 → 사이트 갱신
 # 키는 코드에 없음: 저장소 Secrets의 DART_API_KEY, ANTHROPIC_API_KEY만 사용
 name: 분기 자동 업데이트
@@ -71,19 +71,55 @@ jobs:
           python pipeline/ai_explain.py
           python pipeline/export_web.py
           python pipeline/build_site.py
-      - if: steps.go.outputs.run == 'true'
-        name: 4) 자동 테스트 (실패하면 반영하지 않음)
+      # ---------- 손해보험: 같은 코드를 CSM_SEGMENT=nonlife로 (segments/nonlife/ → nonlife.html) ----------
+      - id: dart_nl
+        name: 1n) 손보 DART 새 공시 수집
+        if: inputs.verify == '' || inputs.verify == null
+        env:
+          CSM_SEGMENT: nonlife
+          DART_API_KEY: ${{ secrets.DART_API_KEY || secrets.DART_KEY }}
+        run: python pipeline/collect_dart.py
+      - id: go_nl
+        run: echo "run=${{ (steps.dart_nl.outputs.new != '0' && steps.dart_nl.outputs.new != '') || inputs.rebuild == true }}" >> "$GITHUB_OUTPUT"
+      - if: steps.go_nl.outputs.run == 'true'
+        name: 1n-b) 손보 추가 표·FISIS 통계
+        continue-on-error: true
+        env:
+          CSM_SEGMENT: nonlife
+          DART_API_KEY: ${{ secrets.DART_API_KEY || secrets.DART_KEY }}
+          FISIS_API_KEY: ${{ secrets.FISIS_API_KEY || secrets.FISIS_KEY }}
+        run: |
+          python pipeline/collect_extra.py
+          python pipeline/collect_fisis.py
+      - if: steps.go_nl.outputs.run == 'true'
+        name: 2n~3n) 손보 추출 → 검증 → 요약 → AI 설명 → 화면
+        env:
+          CSM_SEGMENT: nonlife
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python pipeline/build_nonlife.py
+          python pipeline/extract_movement.py
+          python pipeline/extract_schedule.py
+          python pipeline/build_fisis.py
+          python pipeline/extract_sensitivity.py
+          python pipeline/validate.py
+          python pipeline/export_web.py
+          python pipeline/ai_explain.py
+          python pipeline/export_web.py
+          python pipeline/build_site.py
+      - if: steps.go.outputs.run == 'true' || steps.go_nl.outputs.run == 'true'
+        name: 4) 자동 테스트 (실패하면 반영하지 않음 — 생보·손보 모두)
         run: python tests/test_pipeline.py
-      - if: steps.go.outputs.run == 'true'
+      - if: steps.go.outputs.run == 'true' || steps.go_nl.outputs.run == 'true'
         name: 5) 결과 커밋
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
-          git add -A raw data index.html
+          git add -A raw data index.html segments nonlife.html
           if git diff --cached --quiet; then echo "변경 없음"; exit 0; fi
           git commit -m "분기 자동 업데이트: 새 공시 반영 (GitHub Actions)"
           git push
-      - if: steps.go.outputs.run == 'true'
+      - if: steps.go.outputs.run == 'true' || steps.go_nl.outputs.run == 'true'
         name: 6) 사이트 다시 배포 요청
         continue-on-error: true
         env:

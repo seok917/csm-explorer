@@ -67,7 +67,7 @@ def verify(text, facts):
 
 def facts_from(rec, ae=None, extra=None):
     """회사·연도 레코드(web.json의 years[연도])와 예실차 값으로 허용 값 목록을 만듦"""
-    e = [rec[k] for k in ('open', 'new', 'release', 'interest', 'adjust', 'close', 'adjust_post', 'close_post') if rec.get(k) is not None]
+    e = [rec[k] for k in ('open', 'new', 'release', 'interest', 'adjust', 'close', 'adjust_post', 'close_post', 'transfer', 'other') if rec.get(k) is not None]
     e.append(rec['close'] - rec['open'])
     if rec.get('assump'):
         e += list(rec['assump'].values())

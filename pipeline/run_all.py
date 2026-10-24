@@ -2,7 +2,8 @@
 실행 시간을 단계별로 기록 (자소서·면접용 실측값)"""
 import subprocess, time, sys, os
 H = os.path.dirname(os.path.abspath(__file__))
-steps = [('0 DART 새 공시 수집(키 있을 때만)', 'collect_dart.py'), ('1 데이터 정리', 'build_data.py'), ('2 원문 표 → CSM 변동표 추출', 'extract_movement.py'),
+SEG = os.environ.get('CSM_SEGMENT', 'life')      # 손보: CSM_SEGMENT=nonlife python pipeline/run_all.py
+steps = [('0 DART 새 공시 수집(키 있을 때만)', 'collect_dart.py'), ('1 데이터 정리', 'build_data.py' if SEG == 'life' else 'build_nonlife.py'), ('2 원문 표 → CSM 변동표 추출', 'extract_movement.py'),
          ('2b 원문 신호 탐지(109개 보고서)', 'scan_notes.py'),
          ('2c 상각 예정표 추출·평가', 'extract_schedule.py'), ('2d FISIS 지표', 'build_fisis.py'), ('2e 가정 민감도 추출', 'extract_sensitivity.py'),
          ('3 자동 검증(규칙 6개)', 'validate.py'), ('4 지표·요약 문장 생성', 'export_web.py'),

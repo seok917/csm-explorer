@@ -31,8 +31,12 @@ REL = (r'상각|제공된 서비스에 대해 인식한|제공된 서비스 관�
        r'|제공한 서비스|보험계약마진의? ?인식|이전을 반영')
 NEW = r'최초로? ?인식|신계약|처음 ?인식'
 EST = (r'조정하는 추정|조정 추정치|보험계약마진 추정의 변경|추정치의 변동분|보험계약마진을 조정|보험계약마진에 반영된 추정치'
-       r'|변경하는 추정치|신계약 외 변동')
+       r'|변경하는 추정치|신계약 외 변동|보험계약마진\s?금액을 조정하는|변동\s?-\s?신계약 외')
+REL2 = r'당기서비스와 관련된 변동|현행서비스와 관련된 변동'
 INT = r'보험금융|금융손익|금융비용|이자|부리'
+MOVE_ROW = r'변동|증가|감소|인식|현금흐름|상각|조정|금융'
+TRANSFER = r'계약\s?이전|합병|사업\s?양수|사업\s?양도|사업결합'
+LOSS_IN_CSM = r'손실부담계약의? ?(인식|환입)'   # 손보: 엠지손보 계약이전(2025), 캐롯 → 한화손보 합병(2025)   # 기초·기말 바로 아래에 오는 변동 항목 행
 SCALES = (1, 1e-3, 1e-6, 100)          # 표 단위 → 백만원 (백만원·천원·원·억원)
 TOL = (0.0005, 0.003)                  # FISIS 잔액 허용오차: 먼저 0.05%, 안 되면 0.3% (최소 3억)
 
@@ -60,7 +64,7 @@ def table_rows(g):
 def head_text(R):
     """표 머리글: 첫 숫자 행 앞까지의 라벨"""
     out = []
-    for l, n in R[:10]:
+    for l, n in R[:20]:                    # XBRL형 표(2025년 이후 일부 회사)는 머리글이 10줄을 넘음
         if n and len(n) >= 3:
             break
         out.append(l)
@@ -154,33 +158,54 @@ def movement(R):
                 continue
             for l2, m2 in R[i:i + 4]:                                     # '기초' 다음 줄의 '순부채' 행 등
                 if len(m2) == L and (l2 == l or re.search('부채|순|잔액|합계', l2)):
-                    lab2 = l2 if key in l2 else key + ' ' + l2
-                    if '자산' in lab2 and '부채' not in lab2:
+                    if l2 != l and key not in l2 and re.search(MOVE_ROW, l2):  # XBRL형 표는 모든 행 이름에 '보험계약부채(자산)'이 붙음 → 변동 행 제외
                         continue
-                    vals.append((0 if '순' in lab2 else 1, csm(m2), pst(m2)))
-        return list(dict.fromkeys((v, p) for _, v, p in sorted(vals, key=lambda x: x[0])))
-    op, cl = pick('기초'), pick('기말')
+                    lab2 = l2 if key in l2 else key + ' ' + l2
+                    if ('자산' in lab2 and '부채' not in lab2) or '자산인' in lab2:   # 자산인 계약만의 행(순액·부채 행의 일부)
+                        continue
+                    vals.append((0 if '순' in lab2 else 1, csm(m2), pst(m2), lab2))
+        net = next(((v, p) for _, v, p, lb in vals                        # 순액(부채 − 자산) 행: '순부채', '보험계약부채(자산)'
+                    if ('순' in lb or re.search(r'부채\s?\(자산\)|자산\s?및\s?부채|부채\s?및\s?자산', lb)) and not re.search('자산인|부채인', lb)), None)
+        return list(dict.fromkeys((v, p) for _, v, p, _ in sorted(vals, key=lambda x: x[0]))), net
+    (op, op_net), (cl, cl_net) = pick('기초'), pick('기말')
     if not op or not cl:
         return None
     first = lambda pat, bad=None, pos=False, nz=False: next((m for l, m in R if re.search(pat, l) and len(m) == L
                                                              and not (bad and re.search(bad, l)) and (not pos or csm(m) > 0)
                                                              and (not nz or csm(m) != 0)), None)
+    sec, R2 = '', []                   # 소제목 행(숫자 없음)을 아래 행 이름 앞에 붙인 목록 — '신계약효과' 아래 '손실부담계약을 제외한 집합' 등
+    for l, m in R:
+        if not m: sec = l
+        R2.append((f'{sec} {l}' if m and sec else l, m))
+    first2 = lambda pat, bad=None, pos=False: next((m for l, m in R2 if re.search(pat, l) and len(m) == L and not (bad and re.search(bad, l))
+                                                    and (not pos or csm(m) > 0)), None)
     nw = first(NEW, '신계약 외', pos=True) or first(NEW, '신계약 외')      # 신계약이 없는 폐쇄형 포트폴리오는 0
+    if nw is None:
+        nw = first2(NEW, '신계약 외|손실부담계약집합', pos=True)
     rl = first(REL, '위험조정'); es = first(EST, '조정하지|미조정|손실')
+    if rl is None:                     # CSM만 있는 표: '당기서비스와 관련된 변동' 행이 곧 CSM 상각
+        rl = first(REL2, '위험조정') if how == 'csm-only' else None
     if es is None and nw is not None:  # 합계 행 없이 요인별(해지율·위험률 등)로만 공시한 표 → '미래서비스 소계 − 신계약'
         i = next(i for i, (l, m) in enumerate(R) if m is nw)
         sub = next((m for l, m in R[i + 1:i + 3] if re.fullmatch(r'소\s?계|계', l.strip()) and len(m) == L), None)
         es = [a - b for a, b in zip(sub, nw)] if sub else None
     it = first(INT, '기타포괄|재보험', nz=True) or first(INT, '기타포괄|재보험')   # CSM 열이 0이 아닌 행 우선
     if it is None:                     # '보험금융손익'이 소제목 행이고 숫자는 아래 '당기손익 인식분' 행에 있는 표
-        sec, R2 = '', []
-        for l, m in R:
-            if not m: sec = l
-            R2.append((f'{sec} {l}' if m and sec else l, m))
         it = next((m for l, m in R2 if re.search(INT, l) and len(m) == L and not re.search('기타포괄|재보험', l) and csm(m) != 0), None)
-    return dict(open=op, close=cl, new=csm(nw) if nw else None, release=csm(rl) if rl else None,
-                adjust=csm(es) if es else None, adjust_post=pst(es) if es else None,
-                interest=csm(it) if it is not None else None, ncol=L, how=how)
+    tr = [m for l, m in R if re.search(TRANSFER, l) and len(m) == L and csm(m) != 0]   # 계약이전·합병으로 넘어오거나 나간 CSM
+    lc = [m for l, m in R if re.search(LOSS_IN_CSM, l) and len(m) == L and csm(m) != 0]  # 손실부담계약 인식·환입을 CSM 열에 적은 표(엠지손보)
+    res = dict(open=op, close=cl, open_net=op_net, close_net=cl_net, transfer=sum(csm(m) for m in tr) if tr else None,
+               other=sum(csm(m) for m in lc) if lc else None,
+               new=csm(nw) if nw else None, release=csm(rl) if rl else None,
+               adjust=csm(es) if es else None, adjust_post=pst(es) if es else None,
+               interest=csm(it) if it is not None else None, ncol=L, how=how)
+    if res['release'] is not None and res['release'] > 0 and res['new'] is not None and res['new'] < 0:
+        # 변동 항목을 손익 효과 부호(상각 +, 신계약 −)로 적은 표(엠지손보 등) → CSM 증감 부호로 바꿈
+        for k in ('new', 'release', 'adjust', 'adjust_post', 'interest', 'transfer', 'other'):
+            if res[k] is not None:
+                res[k] = -res[k]
+        res['how'] += '·부호반전'
+    return res
 
 
 def load_cells(src):
@@ -209,12 +234,17 @@ def candidates(src):
     return out
 
 
+def _tsum(S, sc, key='transfer'):
+    v = [x[1].get(key) for x in S if x[1].get(key) is not None]
+    return sum(v) * sc if v else None
+
+
 def _sum(S, key, sc):
     v = [x[1][key] for x in S]
     return None if None in v else sum(v) * sc
 
 
-def choose(C, t_open, t_close):
+def choose(C, t_open, t_close, band_ok=True):
     """후보 표 조합 × 단위 × (기초·기말 행 선택) 중 FISIS 잔액과 가장 가까운 조합.
     허용오차 안의 조합이 여럿이면 오차가 가장 작은 것, 같으면 표 수가 적은 것"""
     for tol in TOL:
@@ -240,10 +270,82 @@ def choose(C, t_open, t_close):
                                 scale=sc, tol=tol, open=o, close=c,
                                 new=_sum(S, 'new', sc), release=_sum(S, 'release', sc), adjust=_sum(S, 'adjust', sc),
                                 interest=_sum(S, 'interest', sc), adjust_post=_sum(S, 'adjust_post', sc),
-                                close_post=sum(posts) * sc if None not in posts else None))
+                                transfer=_tsum(S, sc), other=_tsum(S, sc, 'other'), close_post=sum(posts) * sc if None not in posts else None), S)
         if best:
-            return best[2]
+            return to_net(best[2], best[3]) if seg.SEG == 'nonlife' else best[2]
     return None
+
+
+def to_net(res, S):
+    """손보: 금감원 통계(SI152)의 CSM은 '부채인 보험계약'의 잔여보장요소 CSM만이라, 표를 고를 때는 부채 행으로 맞추고
+    화면 값은 같은 표의 순액(부채 − 자산인 계약) 행으로 바꿈 — 변동 항목(신계약·상각 등)은 순액 기준이라 이렇게 해야 항등식이 맞음.
+    부채 행으로 맞춘 값은 open_liab·close_liab로 남겨 R2(금감원 잔액 대조)에 씀"""
+    res['open_liab'], res['close_liab'] = res['open'], res['close']
+    if all(x[1]['open_net'] is not None and x[1]['close_net'] is not None for x in S):
+        sc = res['scale']
+        res['open'] = sum(x[1]['open_net'][0] for x in S) * sc
+        res['close'] = sum(x[1]['close_net'][0] for x in S) * sc
+        p = [x[1]['close_net'][1] for x in S]
+        res['close_post'] = sum(p) * sc if None not in p else None
+    return res
+
+
+BAND = 0.15
+
+
+def unanchored(C, prem=None):
+    """손보 보조 기준 2: 금감원 CSM이 0인 회사(장기 계약이 모두 '자산인 계약' 쪽이라 부채 쪽 CSM이 없음, 예: 악사손보).
+    같은 보고서의 당기 표와 전기 표는 '당기 기초 = 전기 기말'로 이어지므로, 그런 짝이 정확히 하나일 때 당기 표를 고름.
+    단위는 CSM이 10억~30조 원 범위에 드는 것이 하나뿐일 때만(아니면 고르지 않음)"""
+    net = lambda x, k: (x[1][k + '_net'] or x[1][k][0])[0]
+    cur = [a for a in C if any(b is not a and net(a, 'open') != 0 and abs(net(a, 'open') - net(b, 'close')) < 0.5 for b in C)]
+    if not cur and len(C) == 1:                       # 첫해(전기 표 없음)이고 CSM 표가 하나뿐
+        cur = list(C)
+    if len(cur) != 1:
+        return None
+    a = cur[0]
+    # 단위: 장기 보유보험료(FISIS, 억)가 있으면 CSM이 그 0.5%~10배 범위, 없으면 10억~30조 원 범위에 드는 단위가 하나뿐일 때만
+    lo, hi = (prem * 100 * 0.005, prem * 100 * 10) if prem and prem > 0 else (1e3, 3e7)   # 억 → 백만원
+    scs = [sc for sc in SCALES if lo <= abs(net(a, 'close')) * sc <= hi]
+    if len(scs) != 1:
+        return None
+    sc = scs[0]; m = a[1]
+    p = (m['close_net'] or m['close'][0])[1]
+    return dict(err=None, tables=str(a[0]), how=m['how'] + '·당기전기연결', scale=sc, tol=None,
+                open=net(a, 'open') * sc, close=net(a, 'close') * sc, open_liab=None, close_liab=None,
+                new=None if m['new'] is None else m['new'] * sc, release=None if m['release'] is None else m['release'] * sc,
+                adjust=None if m['adjust'] is None else m['adjust'] * sc, interest=None if m['interest'] is None else m['interest'] * sc,
+                adjust_post=None if m['adjust_post'] is None else m['adjust_post'] * sc, close_post=None if p is None else p * sc,
+                transfer=_tsum([a], sc), other=_tsum([a], sc, 'other'))
+
+
+def band(C, t_open, t_close):
+    """손보 보조 기준: 부채·자산을 나누지 않고 순액만 공시한 표는 금감원 값(부채인 계약만)과 정확히 맞을 수 없음.
+    순액 CSM ≥ 부채인 계약의 CSM(자산인 계약의 CSM이 더해짐)이므로, 기초·기말이 모두 금감원 값 이상 +15% 이내인 조합 중
+    초과폭이 가장 작은 것(같으면 표 수가 적은 것)을 고름. 기준 값이 하나도 없으면 고르지 않음"""
+    if t_open is None and t_close is None:
+        return None
+    ok = lambda v, t: t is None or (t - max(300, abs(t) * 0.003) <= v <= t * (1 + BAND))
+    best = None
+    for sc in SCALES:
+        for k in range(1, min(4, len(C)) + 1):
+            for S in itertools.combinations(C, k):
+                nets_o = [x[1]['open_net'] or x[1]['open'][0] for x in S]
+                nets_c = [x[1]['close_net'] or x[1]['close'][0] for x in S]
+                o = sum(v for v, _ in nets_o) * sc; c = sum(v for v, _ in nets_c) * sc
+                if not (ok(o, t_open) and ok(c, t_close)):
+                    continue
+                ex = sum((v - t) / t for v, t in ((o, t_open), (c, t_close)) if t)
+                if best and (best[0], best[1]) <= (round(ex, 4), k):
+                    continue
+                p = [q for _, q in nets_c]
+                best = (round(ex, 4), k, dict(
+                    err=None, excess=ex, tables='+'.join(str(x[0]) for x in S), how='+'.join(sorted({x[1]['how'] for x in S})) + '·순액범위',
+                    scale=sc, tol=BAND, open=o, close=c, open_liab=None, close_liab=None,
+                    new=_sum(S, 'new', sc), release=_sum(S, 'release', sc), adjust=_sum(S, 'adjust', sc),
+                    interest=_sum(S, 'interest', sc), adjust_post=_sum(S, 'adjust_post', sc),
+                    transfer=_tsum(S, sc), other=_tsum(S, sc, 'other'), close_post=sum(p) * sc if None not in p else None))
+    return best[2] if best else None
 
 
 def post_split(C, res):
@@ -310,7 +412,7 @@ def snapshot():
     print('스냅숏 저장:', SNAP, f'{os.path.getsize(SNAP) / 1e6:.1f}MB')
 
 
-def extract_one(R, cache, co, y, t_open, t_close):
+def extract_one(R, cache, co, y, t_open, t_close, prem=None):
     """회사·기간 하나: 해당 보고서의 후보 표 중 기준 잔액(백만원)에 맞는 조합 → 결과 행"""
     order = [report_period(y)] if len(y) > 4 else [f'{y}.12', f'{int(y) + 1}.12']   # 연간은 당해 보고서, 없으면 다음 해 보고서의 전기 비교
     for rep in order:
@@ -318,7 +420,16 @@ def extract_one(R, cache, co, y, t_open, t_close):
             continue
         if rep not in cache.setdefault(co, {}):
             cache[co][rep] = candidates(R[(co, rep)])
-        res = choose(cache[co][rep], t_open, t_close)
+        zero = t_open in (None, 0) and t_close in (None, 0) and 0 in (t_open, t_close)
+        if zero and rep != order[0]:                  # 기준 없이 고르는 방식은 그 기간의 보고서(당기 표)에서만
+            continue
+        res = unanchored(cache[co][rep], prem) if zero else choose(cache[co][rep], t_open, t_close)
+        if res is None and not zero and seg.SEG == 'nonlife' and t_close is not None and rep == order[0]:
+            res = choose(cache[co][rep], None, t_close, band_ok=False)   # 기초가 재작성된 보고서: 기말만 금감원 값에 맞춤(R3가 재작성을 표시)
+            if res:
+                res['how'] += '·기말만 대조'
+            else:
+                res = band(cache[co][rep], t_open, t_close)
         if res:
             if res['close_post'] is None:
                 res = post_split(cache[co][rep], res)
@@ -340,7 +451,9 @@ def main():
     cache = {}
     m100 = lambda v: None if v is None or pd.isna(v) else v * 100                     # 억 → 백만원
     # 1) 금감원 잔액이 있는 회사·기간: 기초·기말을 금감원 값에 맞춰 표 선택
-    rows = [extract_one(R, cache, r.company, r.year, m100(r.fisis_open), m100(r.fisis_close)) for r in fz.itertuples()]
+    rows = [extract_one(R, cache, r.company, r.year, m100(r.fisis_open), m100(r.fisis_close), getattr(r, 'prem_long', None))
+            if pd.notna(r.fisis_open) or pd.notna(r.fisis_close) else dict(company=r.company, year=r.year, report=None)   # 기준 잔액이 하나도 없으면 고르지 않음
+            for r in fz.itertuples()]
     auto = pd.DataFrame(rows)
     rep = compare(auto)
     final = assemble(auto)
@@ -385,6 +498,11 @@ def assemble(auto):
     for a in auto.itertuples():
         d = {f: getattr(a, f, None) for f in FIELDS}
         src = f'{a.report} 보고서 표 {a.tables}' if pd.notna(a.tables) else '자동 추출 실패'
+        how = str(getattr(a, 'how', ''))
+        if '순액범위' in how:
+            src += ' · 순액 범위 대조'
+        elif '당기전기연결' in how:
+            src += ' · 당기·전기 표 연결'
         if pd.notna(getattr(a, 'post_tables', None)):
             src += f' (전환구분 표 {a.post_tables})'
         if pd.notna(getattr(a, 'filled', None)):
@@ -394,7 +512,9 @@ def assemble(auto):
             for f in fs:
                 d[f] = man.loc[(a.company, a.year), f]
             src = ('수작업 판독' if o.fields == '*' else src + ' · 수작업 보정(' + ', '.join(fs) + ')') + ' — 보정 사유는 overrides.csv'
-        out.append(dict(company=a.company, year=a.year, **{f: (None if pd.isna(v) else v) for f, v in d.items()}, source=src))
+        liab = {f: getattr(a, f) for f in (('open_liab', 'close_liab', 'transfer', 'other') if seg.SEG == 'nonlife' else ())
+                if hasattr(a, f) and pd.notna(getattr(a, f))}   # 손보만: 금감원 대조용 부채 행 값, 계약이전·합병, CSM 열의 손실부담 행   # 손보: 금감원 대조용 부채 행 값
+        out.append(dict(company=a.company, year=a.year, **{f: (None if pd.isna(v) else v) for f, v in d.items()}, source=src, **liab))
     return pd.DataFrame(out)
 
 
@@ -421,7 +541,7 @@ def compare(auto):
         st = '차이' if diff else ('일치(추가값)' if extra else '일치')
         out.append(dict(company=r.company, year=r.year, status=st, detail=' | '.join(diff + extra),
                         report=d['report'], tables=d['tables'], scale=d['scale'], fisis_err=d['err']))
-    rep = pd.DataFrame(out)
+    rep = pd.DataFrame(out, columns=['company', 'year', 'status', 'detail', 'report', 'tables', 'scale', 'fisis_err'])   # 수작업 판독값이 없는 업권(손보)은 빈 표
     rep.to_csv(f'{D}/extract_report.csv', index=False, encoding='utf-8-sig')
     return rep
 

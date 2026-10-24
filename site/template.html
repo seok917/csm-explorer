@@ -34,6 +34,13 @@ h1,h2,h3{text-wrap:balance;margin:0}
 .brand{display:flex;flex-direction:column;min-width:0}
 .brand b{font-size:18px;font-weight:700;letter-spacing:-.01em}
 .brand span{font-size:12px;color:var(--muted)}
+.segsw{display:inline-flex;border:1px solid var(--line);border-radius:999px;background:var(--surface);padding:3px;gap:2px;flex:none}
+.segsw a{font-size:13px;text-decoration:none;color:var(--muted);padding:4px 12px;border-radius:999px;white-space:nowrap}
+.segsw a[aria-current="page"]{background:var(--ink);color:var(--surface)}
+.segsw a:hover:not([aria-current]){color:var(--ink)}
+.segsw a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.mix{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:20px}
+@media (max-width:900px){.mix{grid-template-columns:minmax(0,1fr)}}
 .search{position:relative;flex:1 1 320px;max-width:520px;margin-left:auto}
 .search input{width:100%;font:inherit;font-size:15px;padding:10px 14px 10px 38px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--ink)}
 .search input:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
@@ -154,13 +161,14 @@ th{font-weight:500;color:var(--muted);font-size:12px}
 footer{margin-top:28px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px}
 @media (max-width:900px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.kpi{border-left:0;border-top:1px solid var(--line)}.kpi:nth-child(-n+2){border-top:0}.kpi:nth-child(even){border-left:1px solid var(--line)}
  .grid2{grid-template-columns:minmax(0,1fr)}.how{grid-template-columns:repeat(2,minmax(0,1fr))}.rules{grid-template-columns:minmax(0,1fr)}}
-@media (max-width:480px){.head h1{font-size:24px}.kpi .v{font-size:18px}.auto{grid-template-columns:1fr}.auto small{grid-column:1}.how{grid-template-columns:1fr}}
+@media (max-width:480px){.head h1{font-size:24px}.kpi .v{font-size:18px}.auto{grid-template-columns:1fr}.auto small,.auto .guardline,.auto .ai,.auto p{grid-column:1}.how{grid-template-columns:1fr}}
 @media (prefers-reduced-motion:no-preference){.panel,.kpis,.auto{transition:background-color .2s}}
 </style>
 
 <header class="top">
   <div class="wrap">
-    <div class="brand"><b>CSM 공시 탐색기</b><span>생명보험사 22곳 · DART·금감원 공시 자동 수집·검증 · 개인 프로젝트</span></div>
+    <div class="brand"><b>CSM 공시 탐색기</b><span id="brandSub">생명보험사 22곳 · DART·금감원 공시 자동 수집·검증 · 개인 프로젝트</span></div>
+    <nav class="segsw" id="segSw" aria-label="업권 선택"></nav>
     <div class="search" role="combobox" aria-haspopup="listbox" aria-owns="sugg" aria-expanded="false" id="combo">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="5.2" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l3.2 3.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       <input id="q" type="search" autocomplete="off" placeholder="회사명 검색 (예: 신한, 삼성, 농협)" aria-autocomplete="list" aria-controls="sugg" aria-label="보험사 검색">
@@ -189,17 +197,26 @@ footer{margin-top:28px;font-size:12px;color:var(--muted);border-top:1px solid va
     <section class="panel"><h2>자동 검증 <small id="ckYear"></small></h2><div class="tally" id="tally"></div><ul class="checks" id="checks"></ul></section>
   </div>
 
-  <div class="grid2">
+  <div class="grid2" id="lifeGrid">
     <section class="panel"><h2>조정 추정치 변동 요인 <small>억 원 · CSM 영향</small></h2><div class="chart" id="fac"></div></section>
     <section class="panel"><h2>가정과 실제 <small>예실차·미래 예상손해율</small></h2><div class="tblwrap" id="aeTbl"></div></section>
   </div>
+
+  <section class="panel" style="margin-top:16px" id="nlPanel" hidden>
+    <h2>사업 구성과 보험손익 <small>금감원 FISIS · 장기(CSM이 쌓이는 사업)와 자동차·일반(1년 단위 사업)</small></h2>
+    <div class="mix">
+      <div><h3>보유보험료 구성 <small style="font-weight:400;color:var(--muted)">장기 · 자동차 · 일반</small></h3><div class="chart" id="mixChart"></div><div class="lg" id="mixLg"></div></div>
+      <div><h3>연도별 손익 지표</h3><div class="tblwrap" id="mixTbl"></div></div>
+    </div>
+    <p class="note" id="mixNote" style="font-size:12px;color:var(--muted);margin:10px 0 0;line-height:1.6"></p>
+  </section>
 
   <section class="panel" style="margin-top:16px" id="capPanel">
     <h2>미래 이익 체력 <small>CSM이 언제 이익이 되고, 얼마나 새로 채워지는가</small></h2>
     <div class="cap">
       <div><h3>CSM 상각 예정표 <small style="font-weight:400;color:var(--muted)">기말 CSM을 이익 인식 예상 시기별로 나눈 비중</small></h3><div class="chart" id="sched"></div><div class="lg" id="schedLg"></div><p class="note" id="schedNote"></p></div>
       <div><h3>연도별 지표</h3><div class="tblwrap" id="capTbl"></div><p class="note" id="capNote"></p></div>
-      <details class="judge" id="judge"><summary>이 예정표, 믿고 봐도 될까? <small>22개사 원문으로 검증한 결과</small></summary><ul id="judgeList"></ul></details>
+      <details class="judge" id="judge"><summary>이 예정표, 믿고 봐도 될까? <small id="judgeN">22개사 원문으로 검증한 결과</small></summary><ul id="judgeList"></ul></details>
     </div>
   </section>
 
@@ -248,17 +265,17 @@ footer{margin-top:28px;font-size:12px;color:var(--muted);border-top:1px solid va
     <div class="how">
       <div><b>1. 수집</b>DART Open API로 정기·감사보고서 원문을 받아 모든 표를 셀 단위로 저장</div>
       <div><b>2. 추출</b>원문 표에서 CSM 열을 찾아 변동표를 자동 추출하고, 금감원 잔액과 맞는 표 조합을 자동 선택</div>
-      <div><b>3. 검증</b>규칙 6개를 회사·연도마다 자동 실행해 불일치·확인 필요 항목 표시</div>
+      <div><b>3. 검증</b><span id="howRules">규칙 6개를</span> 회사·연도마다 자동 실행해 불일치·확인 필요 항목 표시</div>
       <div><b>4. 검토 기록</b>걸린 항목마다 원문을 확인하고 판단과 근거를 남김</div>
       <div><b>5. 요약·대조</b>요약 문장(또는 AI 설명) 속 숫자를 원표와 자동 대조한 뒤 화면에 표시</div>
     </div>
     <div class="rules">
       <div><b>R1 변동표 항등식</b> 기초+신계약+상각+이자부리+조정 = 기말</div>
-      <div><b>R2 금감원 잔액 대조</b> DART 기말 CSM = FISIS 잔액</div>
+      <div data-rule="R2"><b>R2 금감원 잔액 대조</b> <span id="r2Text">DART 기말 CSM = FISIS 잔액</span></div>
       <div><b>R3 연속성</b> 당기 기초 = 전기 기말</div>
-      <div><b>R4 포트폴리오 합계</b> 포트폴리오 합 = 공시 합계(예상보험금 표)</div>
-      <div><b>R5 급변 탐지</b> 위험보험료 ±50% 이상, 상쇄율 업계 강건 z ≥ 3</div>
-      <div><b>R6 기준 변경 문구</b> 주석의 '제외하여 작성·제도변경·재작성' 등 탐지</div>
+      <div data-rule="R4"><b>R4 포트폴리오 합계</b> 포트폴리오 합 = 공시 합계(예상보험금 표)</div>
+      <div data-rule="R5"><b>R5 급변 탐지</b> <span id="r5Text">위험보험료 ±50% 이상, 상쇄율 업계 강건 z ≥ 3</span></div>
+      <div data-rule="R6"><b>R6 기준 변경 문구</b> 주석의 '제외하여 작성·제도변경·재작성' 등 탐지</div>
     </div>
   </section>
 
@@ -270,8 +287,11 @@ footer{margin-top:28px;font-size:12px;color:var(--muted);border-top:1px solid va
 (function(){
 const D = JSON.parse(document.getElementById('data').textContent);
 const C = D.companies; const byName = Object.fromEntries(C.map(c=>[c.name,c]));
-let cur = { co: '신한라이프', year: '2025', metric: 'close' };
-try { const s = JSON.parse(localStorage.getItem('csm-explorer')||'null'); if (s && byName[s.co]) cur = Object.assign(cur, s); } catch(e){}
+const SEG = D.meta.seg || {key:'life',label:'생명보험',page:'index.html',default:'신한라이프',ex:'신한, 삼성, 농협',quick:['신한라이프','삼성생명','한화생명','교보생명','NH농협생명','미래에셋생명']};
+const NL = SEG.key==='nonlife';
+const LSKEY = 'csm-explorer' + (SEG.key==='life'? '' : '-'+SEG.key);   // 업권마다 따로 기억(생보에서 고른 회사가 손보 화면에 섞이지 않게)
+let cur = { co: byName[SEG.default]? SEG.default : C[0].name, year: '2025', metric: 'close' };
+try { const s = JSON.parse(localStorage.getItem(LSKEY)||'null'); if (s && byName[s.co]) cur = Object.assign(cur, s); } catch(e){}
 const $ = id => document.getElementById(id);
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const esc = s => String(s).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
@@ -279,7 +299,16 @@ const won = x => { if (x==null) return '–'; const s = x<0?'−':''; x=Math.abs
   return s + (jo? `${jo}조 ${Math.round(e).toLocaleString('ko-KR')}억` : `${Math.round(e).toLocaleString('ko-KR')}억`); };
 const n0 = x => x==null? '–' : (x<0?'−':'') + Math.round(Math.abs(x)).toLocaleString('ko-KR');
 const pct = (x,d=0) => x==null? '–' : (x*100).toFixed(d)+'%';
-const save = () => { try { localStorage.setItem('csm-explorer', JSON.stringify(cur)); } catch(e){} };
+const save = () => { try { localStorage.setItem(LSKEY, JSON.stringify(cur)); } catch(e){} };
+/* 업권 전환·머리글 */
+$('brandSub').textContent = `${SEG.label}사 ${D.meta.n_company}곳 · DART·금감원 공시 자동 수집·검증 · 개인 프로젝트`;
+$('segSw').innerHTML = (D.meta.segs||[]).map(g=>`<a href="${g.page}"${g.key===SEG.key?' aria-current="page"':''}>${g.label}</a>`).join('');
+if(!(D.meta.segs||[]).length) $('segSw').hidden = true;
+document.getElementById('q').placeholder = `회사명 검색 (예: ${SEG.ex})`;
+const RULESET = new Set((D.meta.rules||[]).map(r=>r.split(' ')[0]));
+document.querySelectorAll('[data-rule]').forEach(e=>{ if(RULESET.size && !RULESET.has(e.dataset.rule)) e.hidden=true; });
+$('howRules').textContent = `규칙 ${D.meta.n_rules||6}개를`;
+if(NL){ $('r2Text').textContent = 'DART 기말 CSM 중 부채인 계약 = FISIS 잔액(순액만 공시한 표는 범위 대조)'; $('r5Text').textContent = '상쇄율(신계약 대비 조정 비율) 업계 강건 z ≥ 3'; }
 
 /* ---------- 검색 ---------- */
 const q = $('q'), sg = $('sugg'), combo = $('combo'); let hi = -1, list = [];
@@ -303,12 +332,13 @@ q.addEventListener('keydown', e=>{
   else if (e.key==='Escape'){ hideSugg(); } });
 sg.addEventListener('mousedown', e=>{ const li=e.target.closest('li[data-n]'); if(li){ e.preventDefault(); pick(li.dataset.n); } });
 q.addEventListener('blur', ()=>setTimeout(hideSugg,120));
-$('quick').innerHTML = ['신한라이프','삼성생명','한화생명','교보생명','NH농협생명','미래에셋생명'].filter(n=>byName[n]).map(n=>`<button type="button" data-n="${n}">${n}</button>`).join('');
+$('quick').innerHTML = SEG.quick.filter(n=>byName[n]).map(n=>`<button type="button" data-n="${n}">${n}</button>`).join('');
 $('quick').addEventListener('click', e=>{ const b=e.target.closest('button'); if(b) pick(b.dataset.n); });
 
 /* ---------- SVG 도우미 ---------- */
 const NS='http://www.w3.org/2000/svg';
-const SHORT={'물량차이·투자요소 예실차':'물량·예실차','교보라이프플래닛':'라이프플래닛','BNP카디프생명':'BNP카디프','푸본현대생명':'푸본현대','미래에셋생명':'미래에셋'};
+const SHORT={'물량차이·투자요소 예실차':'물량·예실차','교보라이프플래닛':'라이프플래닛','BNP카디프생명':'BNP카디프','푸본현대생명':'푸본현대','미래에셋생명':'미래에셋',
+  'NH농협손해보험':'NH농협손보','카카오페이손해보험':'카카오페이','신한EZ손해보험':'신한EZ','하나손해보험':'하나손보','한화손해보험':'한화손보','롯데손해보험':'롯데손보','DB손해보험':'DB손보','KB손해보험':'KB손보','AXA손해보험':'AXA손보','AIG손해보험':'AIG손보','MG손해보험':'MG손보'};
 function svg(w,h){ const s=document.createElementNS(NS,'svg'); s.setAttribute('viewBox',`0 0 ${w} ${h}`); s.setAttribute('role','img'); return s; }
 function el(tag, attrs, parent, text){ const e=document.createElementNS(NS,tag); for(const k in attrs) e.setAttribute(k, attrs[k]); if(text!=null) e.textContent=text; parent.appendChild(e); return e; }
 function niceTicks(lo, hi, n=5){ const span=hi-lo||1; const step0=span/n; const p=Math.pow(10,Math.floor(Math.log10(step0))); const m=step0/p;
@@ -319,7 +349,9 @@ function waterfall(r){
   const host=$('wf'); host.innerHTML='';
   const nar=(host.clientWidth||620)<480;
   const steps=[[nar?'기초':'기초 CSM',r.open,'total'],['신계약',r.new,'d'],[nar?'이자':'이자부리',r.interest,'d'],[nar?'상각':'CSM 상각',r.release,'d'],[nar?'조정':'조정 추정치',r.adjust,'d']];
-  const gap=r.close-(r.open+r.new+r.interest+r.release+r.adjust);
+  if(r.transfer) steps.push([nar?'이전':'계약이전·합병',r.transfer,'d']);      // 손보: 공시 표의 계약이전·합병 행
+  if(r.other) steps.push([nar?'손실부담':'손실부담(CSM 열)',r.other,'d']);      // 손보: 손실부담계약 인식·환입을 CSM 열에 적은 회사
+  const gap=r.close-(r.open+r.new+r.interest+r.release+r.adjust+(r.transfer||0)+(r.other||0));
   if(Math.abs(gap)>Math.max(1,Math.abs(r.close)*0.001)) steps.push([nar?'잔차':'기타·잔차',gap,'r']);   // 항등식이 맞지 않으면 차이를 따로 표시
   steps.push([nar?'기말':'기말 CSM',r.close,'total']);
   const W=Math.max(320,host.clientWidth||620),H=300,L=56,R=12,T=22,B=40; const s=svg(W,H); host.appendChild(s);
@@ -365,12 +397,20 @@ const METRICS={close:['기말 CSM',r=>r.close,v=>won(v)],new:['신계약 CSM',r=
   sens_lapse:['해지율 상승 시 CSM 변화',(r,c,y)=>{const a=(y.includes('상반기')?y.slice(0,4)+'.06':y+'.12'); const t=(c.sens||[]).find(s=>s.asof===a); return t&&t.p.lapse_up!=null? t.p.lapse_up : null;},v=>pct(v,1)],
   sens_morb:['장해·질병 상승 시 CSM 변화',(r,c,y)=>{const a=(y.includes('상반기')?y.slice(0,4)+'.06':y+'.12'); const t=(c.sens||[]).find(s=>s.asof===a); return t&&t.p.morb!=null? t.p.morb : null;},v=>pct(v,1)],
   p25:['25회차 유지율',(r,c,y)=>(c.fisis&&c.fisis[y]&&c.fisis[y].p25)||null,v=>v.toFixed(1)+'%']};
+const FV=(c,y,k)=>{ const f=c.fisis&&c.fisis[y]; return f&&f[k]!=null? f[k] : null; };
+const okMulNL=f=>f&&f.multiple!=null&&f.init_m>=30&&f.multiple>=2&&f.multiple<=40;   // 월납 초회보험료가 작으면(30억 미만) 배수가 흔들려 제외
+if(NL) Object.assign(METRICS,{
+  multiple:['신계약 CSM 배수',(r,c,y)=>{const f=c.fisis&&c.fisis[y]; return okMulNL(f)? f.multiple : null;},v=>v.toFixed(1)+'배'],
+  long_share:['장기보험 비중',(r,c,y)=>FV(c,y,'long_share'),v=>pct(v)],
+  gmm_ratio:['장기 보험서비스비용률',(r,c,y)=>FV(c,y,'gmm_ratio'),v=>pct(v,1)],
+  paa_ratio:['자동차·일반 비용률',(r,c,y)=>FV(c,y,'paa_ratio'),v=>pct(v,1)]});
+Object.keys(METRICS).forEach(k=>{ if(!C.some(c=>Object.keys(c.years).some(y=>METRICS[k][1](c.years[y],c,y)!=null))) delete METRICS[k]; });   // 그 업권에 자료가 없는 지표는 숨김
 $('metricSel').innerHTML=Object.entries(METRICS).map(([k,[n]])=>`<button type="button" data-m="${k}">${n}</button>`).join('');
 $('metricSel').addEventListener('click',e=>{const b=e.target.closest('button'); if(b){cur.metric=b.dataset.m; render(); save();}});
 $('yearSeg').addEventListener('click',e=>{const b=e.target.closest('button'); if(b&&!b.disabled){cur.year=b.dataset.y; render(); save();}});
 
 function render(){
-  if(cur.tab==='qa'){ $('coName').textContent='검증 현황'; $('coSub').textContent=`22개사 · 규칙 6개 · 걸린 항목은 원문을 확인해 판단과 근거를 기록`;
+  if(cur.tab==='qa'){ $('coName').textContent='검증 현황'; $('coSub').textContent=`${D.meta.n_company}개사 · 규칙 ${D.meta.n_rules||6}개 · 걸린 항목은 원문을 확인해 판단과 근거를 기록`;
     $('yearSeg').innerHTML=D.years.map(y=>`<button type="button" data-y="${y}" aria-pressed="${y===cur.year}">${y}</button>`).join('');
     renderQa(); return; }
   const c=byName[cur.co], r=c.years[cur.year];
@@ -400,6 +440,10 @@ function render(){
   const cnt={}; yc.forEach(k=>cnt[k.status]=(cnt[k.status]||0)+1);
   $('tally').innerHTML=Object.keys(ST).filter(s=>cnt[s]).map(s=>`<span class="chip ${ST[s][0]}">${ST[s][1]} ${cnt[s]}</span>`).join('');
   $('checks').innerHTML= yc.length? yc.map(k=>`<li><span class="chip ${ST[k.status][0]}">${ST[k.status][1]}</span><div><b>${esc(k.rule)}</b><span>${esc(k.detail)}</span>${k.decision?`<span class="review"><em>${esc(k.decision)}</em>${esc(k.note)}</span>`:''}</div></li>`).join('') : '<li class="empty">이 기간에 해당하는 검증 규칙이 없습니다.</li>';
+  $('lifeGrid').hidden = !(D.meta.has? (D.meta.has.assump||D.meta.has.ae||D.meta.has.lossratio) : true);
+  $('notesPanel').hidden = D.meta.has? !D.meta.has.notes : false;
+  $('nlPanel').hidden = !NL;
+  if(NL) renderMix(c);
   // 요인
   hbars($('fac'), r.assump? Object.entries(r.assump).map(([k,v])=>({k,v})) : [], {signed:true, empty:'이 기간의 요인별 분해는 공시되지 않았거나 합계가 맞지 않아 제외했습니다.'});
   // 가정과 실제
@@ -418,7 +462,7 @@ function render(){
   // 업계
   const [mn,get,fmt]=METRICS[cur.metric];
   const items=C.filter(x=>x.years[cur.year]&&get(x.years[cur.year],x,cur.year)!=null).map(x=>({k:x.name,v:get(x.years[cur.year],x,cur.year),hl:x.name===c.name})).sort((a,b)=>b.v-a.v);
-  hbars($('ind'), items, {L:120,rowH:22,fmt, empty:'이 기간에 비교할 자료가 없습니다.', tick: cur.metric==='close'||cur.metric==='new'? (t=>(t/10000).toFixed(t%10000?1:0)+'조') : cur.metric==='replace'? (t=>t.toFixed(1)+'배') : (cur.metric==='kics'||cur.metric==='p25')? (t=>Math.round(t)+'%') : (t=>Math.round(t*100)+'%')});
+  hbars($('ind'), items, {L:120,rowH:22,fmt, empty:'이 기간에 비교할 자료가 없습니다.', tick: cur.metric==='close'||cur.metric==='new'? (t=>(t/10000).toFixed(t%10000?1:0)+'조') : (cur.metric==='replace'||cur.metric==='multiple')? (t=>t.toFixed(1)+'배') : (cur.metric==='kics'||cur.metric==='p25')? (t=>Math.round(t)+'%') : (t=>Math.round(t*100)+'%')});
   // 원문 신호
   $('notes').innerHTML = c.notes.length? c.notes.map(n=>`<li><q>${esc(n.text)}</q><small>${esc(n.report)} 보고서 · ${esc(n.kind)}</small></li>`).join('') : '<li class="empty" style="border:0;padding:0">탐지된 기준 변경 문구가 없습니다.</li>';
   document.title = `${c.name} · CSM 공시 탐색기`;
@@ -452,7 +496,7 @@ function renderCap(c, r){
   $('schedLg').innerHTML = rows.length? BK.map((k,j)=>`<span><i style="background:var(--accent);opacity:${BOP[j]}"></i>${k}</span>`).join('')+'<span style="margin-left:auto">오른쪽 숫자 = 1년 이내 비중</span>' : '';
   const notes=[];
   const last=[...rows].reverse().find(s=>!s.restated);
-  if(last){ const hl = last.half==null? '' : last.half>=99? ' 절반 이상이 10년 넘어서 인식됩니다.' : ` 잔액의 절반이 이익으로 인식되기까지 약 <b>${last.half.toFixed(1)}년</b>입니다.`;
+  if(last){ const hl = last.half==null? '' : last.half>=99? ` 절반 이상이 ${last.tail_from!=null? last.tail_from : 10}년 넘어서 인식됩니다.` : ` 잔액의 절반이 이익으로 인식되기까지 약 <b>${last.half.toFixed(1)}년</b>입니다.`;
     notes.push(`${esc(last.asof)} 기준 CSM ${won(last.total)} 원 중 <b>1년 안에 ${pct(last.s1,1)}</b>, ${last.s10p!=null?`<b>10년 넘어서 ${pct(last.s10p)}</b>가`:''} 이익으로 인식될 예정입니다.${hl}`); }
   rows.filter(s=>s.vintage==='당시'&&s.bt!=null).forEach(s=>notes.push(`${esc(s.asof)} 예정 '1년 이내' ${won(s.pred1)} → 다음 해 실제 상각 ${won(s.actual_next)} (<b>${s.bt.toFixed(2)}배</b>)`));
   rows.filter(s=>s.restated).forEach(s=>notes.push(`<b>산출 기준 변경:</b> ${esc(s.asof)} 시점 예정표가 ${esc(s.report)} 보고서에서 다시 공시되며 1년 이내 비중이 ${pct(s.restated.s1,1)} → ${pct(s.s1,1)}로 바뀌었습니다.`));
@@ -461,15 +505,16 @@ function renderCap(c, r){
   if(rows.length) notes.push('예정표는 그 시점 잔액만 대상이라, 다음 해 실제 상각에는 그해 신계약분·이자부리가 더해져 예정보다 큰 것이 정상입니다. 수준보다 연도 간 안정성을 봐야 합니다.');
   $('schedNote').innerHTML=notes.join('<br>');
   const J=D.schedule_eval;
+  $('judgeN').textContent=`${J? J.n_company : D.meta.n_company}개사 원문으로 검증한 결과`;
   if(J){ const p1=v=>(v*100).toFixed(1)+'%p', p0=v=>Math.round(v*100)+'%';
     $('judgeList').innerHTML=[
-      `<b>안정적인가 — 예.</b> 같은 기준(2024년 이후 연차별 공시)으로 낸 ${J.n_stable}개사의 2024→2025 변화는 '1년 이내 비중' 중앙값 ${p1(J.d_s1_median)}, '10년 초과 비중' ${p1(J.d_s10_median)}에 그쳤습니다. 해마다 출렁이는 값이 아니라 상품 구성에서 나오는 회사의 체질입니다.`,
+      `<b>안정적인가 — 예.</b> ${NL? '같은 형식으로 2024·2025년 말 예정표를 모두 낸' : '같은 기준(2024년 이후 연차별 공시)으로 낸'} ${J.n_stable}개사의 2024→2025 변화는 '1년 이내 비중' 중앙값 ${p1(J.d_s1_median)}, '10년 초과 비중' ${p1(J.d_s10_median)}에 그쳤습니다. 해마다 출렁이는 값이 아니라 상품 구성에서 나오는 회사의 체질입니다.`,
       `<b>회사를 구별하나 — 예.</b> 2025년 말 1년 이내 비중은 ${esc(J.s1_min_co)} ${p0(J.s1_range[0])}부터 ${esc(J.s1_max_co)} ${p0(J.s1_range[1])}까지, 10년 넘어 인식될 비중은 ${p0(J.s10_range[0])}~${p0(J.s10_range[1])}로 벌어집니다(${J.n_2025}개사).`,
       `<b>미래를 가리키나 — 순위는 예.</b> 2024년 말 '1년 이내 비중'이 높은 회사일수록 2025년 실제 상각률도 높았습니다(순위 상관 ${J.rank_corr.toFixed(2)}, ${J.n_rank}개사).`,
       `<b>이익 금액 예측으로 쓸 수 있나 — 아니요.</b> 다음 해 실제 상각은 예정된 '1년 이내' 금액의 중앙값 ${Object.entries(J.bt_median).map(([k,v])=>`${v.toFixed(2)}배(${esc(k)} 예정)`).join(', ')}였습니다. 예정표는 그 시점 잔액만 대상이라 다음 해 신계약·이자부리·가정 변경이 빠지기 때문입니다.`,
-      `<b>주의할 점 — 기준 변경.</b> ${J.restated_2023.map(esc).join(', ')}는 2023년 말 예정표를 2024년 보고서에서 다른 값으로 다시 공시했습니다(연차별 공시로 바뀐 해). 2023년과 2024년 이후 값을 바로 이어 비교하면 안 됩니다.`,
+      J.restated_2023.length? `<b>주의할 점 — 기준 변경.</b> ${J.restated_2023.map(esc).join(', ')}는 2023년 말 예정표를 2024년 보고서에서 다른 값으로 다시 공시했습니다(연차별 공시로 바뀐 해). 2023년과 2024년 이후 값을 바로 이어 비교하면 안 됩니다.` : '',
       `<b>그래서</b> 수준(금액)보다 <b>모양</b>을 봅니다: 이익이 얼마나 오래, 고르게 나오는가(이익의 지속성)를 회사끼리 비교하는 지표로 씁니다.`
-    ].map(t=>`<li>${t}</li>`).join(''); } else $('judge').hidden=true;
+    ].filter(Boolean).map(t=>`<li>${t}</li>`).join(''); } else $('judge').hidden=true;
   // 연도별 지표
   const ys=D.years.filter(y=>c.years[y]); const md=D.meta;
   const F=c.fisis||{};
@@ -478,15 +523,46 @@ function renderCap(c, r){
   let h=`<table><thead><tr><th>지표</th>${ys.map(y=>`<th>${esc(y.replace(' 상반기',' 상'))}</th>`).join('')}</tr></thead><tbody>`;
   h+=line('상각률 <small style="color:var(--muted)">상각 ÷ 상각 전 잔액</small>',(x,y)=>sub(x.release_rate,md.release_rate_median&&md.release_rate_median[y],v=>pct(v,1)));
   h+=line('신계약 대체율 <small style="color:var(--muted)">신계약 ÷ 상각</small>',(x,y)=>sub(x.replace,md.replace_median&&md.replace_median[y],v=>v.toFixed(2)+'배'));
-  h+=line('조정 중 가정 변경',(x)=>x.split?n0(x.split.assume):'–');
-  h+=line('조정 중 경험 차이 <small style="color:var(--muted)">물량·투자요소 예실차</small>',(x)=>x.split&&x.split.experience!=null?n0(x.split.experience):'–');
+  if(ys.some(y=>c.years[y].split)){                 // 요인별 분해 자료가 있는 회사만(생보 분석 엑셀 기준)
+    h+=line('조정 중 가정 변경',(x)=>x.split?n0(x.split.assume):'–');
+    h+=line('조정 중 경험 차이 <small style="color:var(--muted)">물량·투자요소 예실차</small>',(x)=>x.split&&x.split.experience!=null?n0(x.split.experience):'–'); }
   const okMul=f=>f&&f.multiple!=null&&f.prot_init>=100&&f.multiple>=5&&f.multiple<=30;   // 보장성 초회보험료가 작거나(분류 차이) 배수가 업계 통상 범위(5~30배)를 벗어나면 표시하지 않음
   const fk=[['kics','지급여력비율(K-ICS) <small style="color:var(--muted)">FISIS</small>',v=>v.toFixed(1)+'%'],['p13','13회차 유지율',v=>v.toFixed(1)+'%'],['p25','25회차 유지율',v=>v.toFixed(1)+'%'],
-    ['multiple','신계약 CSM 배수 <small style="color:var(--muted)">신계약 CSM ÷ 보장성 초회보험료</small>',v=>v.toFixed(1)+'배']];
-  fk.forEach(([k,lab,fm])=>{ if(ys.some(y=>F[y]&&F[y][k]!=null)) h+=line(lab,(x,y)=>{ const f=F[y]; if(!f||f[k]==null) return '–'; if(k==='multiple'&&!okMul(f)) return '<span title="보장성 초회보험료가 작거나 다른 분류(특별계정 등)에 잡혀 배수를 계산하지 않음">·</span>'; return fm(f[k]); }); });
+    ['multiple', NL? '신계약 CSM 배수 <small style="color:var(--muted)">신계약 CSM ÷ 월납 초회보험료</small>' : '신계약 CSM 배수 <small style="color:var(--muted)">신계약 CSM ÷ 보장성 초회보험료</small>',v=>v.toFixed(1)+'배']];
+  const okM = NL? okMulNL : okMul;
+  fk.forEach(([k,lab,fm])=>{ if(ys.some(y=>F[y]&&F[y][k]!=null)) h+=line(lab,(x,y)=>{ const f=F[y]; if(!f||f[k]==null) return '–'; if(k==='multiple'&&!okM(f)) return `<span title="${NL?'월납 초회보험료가 작아(30억 원 미만) 배수를 계산하지 않음':'보장성 초회보험료가 작거나 다른 분류(특별계정 등)에 잡혀 배수를 계산하지 않음'}">·</span>`; return fm(f[k]); }); });
   $('capTbl').innerHTML=h+'</tbody></table>';
   const hasF=Object.keys(F).length>0;
-  $('capNote').innerHTML=(hasF?'<b>신계약 CSM 배수</b>는 보장성 상품을 팔 때 첫 회 보험료 1원당 미래 이익을 얼마나 쌓았는지(신계약 수익성)를 봅니다. 초회보험료에 일시납이 섞이거나 변액종신처럼 특별계정에 잡히면 회사마다 왜곡되므로 같은 회사의 추이로 보세요. 유지율이 오르면 해지율 가정이 덜 나빠져 CSM 조정에도 유리합니다. ':'')+'상각률이 높을수록 CSM이 빨리 이익으로 풀리고(보장 기간이 짧은 상품 비중이 큼), 대체율이 1배를 넘으면 풀린 이익보다 신계약으로 더 많이 채운 해입니다. 반기 값은 반기 누적이라 연간과 직접 비교하지 않습니다. 조정의 가정 변경·경험 차이는 금액 단위 억 원.';
+  $('capNote').innerHTML=(hasF? (NL? '<b>신계약 CSM 배수</b>는 장기보험(주로 월납 보장성)을 팔 때 첫 회 보험료 1원당 미래 이익을 얼마나 쌓았는지(신계약 수익성)를 봅니다. 분모는 FISIS 「납입방법별 보험료」의 월납 초회보험료(그해 누계)라, 회사가 IR에서 쓰는 \'보장성 월초\' 배수와 수준은 다를 수 있어 같은 회사의 추이와 회사 간 순서로 보세요. 유지율이 오르면 해지율 가정이 덜 나빠져 CSM 조정에도 유리합니다. '
+     : '<b>신계약 CSM 배수</b>는 보장성 상품을 팔 때 첫 회 보험료 1원당 미래 이익을 얼마나 쌓았는지(신계약 수익성)를 봅니다. 초회보험료에 일시납이 섞이거나 변액종신처럼 특별계정에 잡히면 회사마다 왜곡되므로 같은 회사의 추이로 보세요. 유지율이 오르면 해지율 가정이 덜 나빠져 CSM 조정에도 유리합니다. ') : '')+'상각률이 높을수록 CSM이 빨리 이익으로 풀리고(보장 기간이 짧은 상품 비중이 큼), 대체율이 1배를 넘으면 풀린 이익보다 신계약으로 더 많이 채운 해입니다. 반기 값은 반기 누적이라 연간과 직접 비교하지 않습니다. 조정의 가정 변경·경험 차이는 금액 단위 억 원.';
+}
+
+
+/* ---------- 손보: 사업 구성과 보험손익 ---------- */
+const MIXK=[['prem_long','장기'],['prem_auto','자동차'],['prem_gen','일반']], MIXOP=[1,.62,.32];
+function renderMix(c){
+  const F=c.fisis||{}; const ys=D.years.filter(y=>F[y]&&MIXK.some(([k])=>F[y][k]!=null));
+  const host=$('mixChart'); host.innerHTML='';
+  if(!ys.length){ host.innerHTML='<div class="empty">FISIS에 이 회사의 보유보험료 자료가 없습니다.</div>'; $('mixLg').innerHTML=''; $('mixTbl').innerHTML=''; $('mixNote').textContent=''; return; }
+  const W=Math.max(260,host.clientWidth||520), rowH=30, L=W<480?70:84, R=W<480?44:58, T=4, H=T+rowH*ys.length+4; const sv=svg(W,H); host.appendChild(sv);
+  const acc=css('--accent'), x=v=>L+(W-L-R)*v;
+  ys.forEach((y,i)=>{ const f=F[y], yy=T+i*rowH; const tot=MIXK.reduce((a,[k])=>a+Math.max(0,f[k]||0),0)||1; let run=0;
+    el('text',{x:L-8,y:yy+rowH/2+4,'text-anchor':'end','font-size':12,fill:css('--ink'),'font-family':css('--f-num')},sv,y.replace(' 상반기',' 상'));
+    const g=el('g',{},sv); el('title',{},g,`${y} 보유보험료 ${won(tot)} 원\n`+MIXK.map(([k,n])=>`${n} ${won(f[k])} (${pct((f[k]||0)/tot,1)})`).join('\n'));
+    MIXK.forEach(([k],j)=>{ const v=Math.max(0,f[k]||0)/tot; if(v<=0) return; const x0=x(run), w=Math.max(0,x(run+v)-x0-1.5);
+      el('rect',{x:x0,y:yy+6,width:w,height:rowH-12,rx:2,fill:acc,'fill-opacity':MIXOP[j]},g); run+=v; });
+    el('text',{x:W-R+6,y:yy+rowH/2+4,'font-size':11.5,fill:css('--muted'),'font-family':css('--f-num')},sv,pct((f.prem_long||0)/tot)); });
+  $('mixLg').innerHTML=MIXK.map(([k,n],j)=>`<span><i style="background:var(--accent);opacity:${MIXOP[j]}"></i>${n}</span>`).join('')+'<span style="margin-left:auto">오른쪽 숫자 = 장기 비중</span>';
+  const med=k=>{ const v=C.map(o=>o.fisis&&o.fisis[cur.year]&&o.fisis[cur.year][k]).filter(v=>v!=null).sort((a,b)=>a-b); return v.length? v[Math.floor((v.length-1)/2)]*.5+v[Math.ceil((v.length-1)/2)]*.5 : null; };
+  const rows=[['보유보험료 합계 <small style="color:var(--muted)">억 원·누계</small>',f=>{const t=MIXK.reduce((a,[k])=>a+(f[k]||0),0); return t? n0(t):'–';}],
+    ['장기보험 비중',f=>f.long_share==null?'–':pct(f.long_share)],
+    ['장기 보험서비스비용률 <small style="color:var(--muted)">일반모형·변동수수료</small>',f=>f.gmm_ratio==null?'–':pct(f.gmm_ratio,1)],
+    ['자동차·일반 비용률 <small style="color:var(--muted)">보험료배분접근법</small>',f=>f.paa_ratio==null?'–':`<span class="${f.paa_ratio>1?'down':''}">${pct(f.paa_ratio,1)}</span>`]];
+  $('mixTbl').innerHTML=`<table><thead><tr><th>지표</th>${ys.map(y=>`<th>${esc(y.replace(' 상반기',' 상'))}</th>`).join('')}</tr></thead><tbody>`+
+    rows.map(([lab,fn])=>`<tr><td>${lab}</td>${ys.map(y=>`<td class="num">${fn(F[y])}</td>`).join('')}</tr>`).join('')+'</tbody></table>';
+  const f=F[cur.year], mg=med('gmm_ratio'), mp=med('paa_ratio');
+  $('mixNote').innerHTML=(f&&f.paa_ratio!=null? `${esc(cur.year)} 자동차·일반 비용률 ${pct(f.paa_ratio,1)}(업계 중앙 ${mp==null?'–':pct(mp,1)}) · 장기 보험서비스비용률 ${f.gmm_ratio==null?'–':pct(f.gmm_ratio,1)}(업계 중앙 ${mg==null?'–':pct(mg,1)}). ` : '')+
+    '<b>읽는 법</b> 자동차·일반보험은 대부분 보험료배분접근법(PAA)이라 CSM이 없고, 보험서비스비용 ÷ 보험수익이 손해율과 사업비율을 합친 \'합산비율\'에 가깝습니다(100%를 넘으면 그 사업에서 보험손익 적자, 재보험 전). 장기보험(일반모형·변동수수료)의 비용률은 보험수익(CSM 상각·위험조정 해제·예상 보험금·사업비) 가운데 실제 보험금·사업비·손실부담 비용이 차지하는 비중이라, 오르면 실제 보험금이 예상보다 많았거나(예실차 악화) 손실부담계약 비용이 늘어난 해입니다. 금액은 그해 1월부터의 누계(상반기는 반기 누계)이고, 회사 전체(별도) 기준입니다.';
 }
 
 
@@ -552,7 +628,7 @@ function setTab(t){ cur.tab=t; const qa=t==='qa';
   render(); save(); }
 $('tabCo').addEventListener('click',()=>setTab('co')); $('tabQa').addEventListener('click',()=>setTab('qa'));
 
-$('foot').innerHTML=`공시자료 기반 개인 분석 프로젝트이며 각 보험회사의 공식 자료가 아닙니다. 자료: 금융감독원 DART 사업·감사보고서 주석(별도), FISIS Open API. 단위 억 원, 반기·분기는 그해 1월부터의 누적 수치. 정기보고서 ${D.meta.n_reports}건 · 검증 ${D.meta.n_checks}건 · 데이터 기준일 ${D.meta.built}. 만든 사람: 정민석`;
+$('foot').innerHTML=`공시자료 기반 개인 분석 프로젝트이며 각 보험회사의 공식 자료가 아닙니다. 자료: 금융감독원 DART 사업·감사보고서 주석(별도), FISIS Open API. 단위 억 원, 반기·분기는 그해 1월부터의 누적 수치. 공시 보고서 ${D.meta.n_reports}건 · 검증 ${D.meta.n_checks}건 · 데이터 기준일 ${D.meta.built}. 만든 사람: 정민석`;
 if(location.hash==='#qa') cur.tab='qa';
 if(cur.tab==='qa') setTab('qa'); else render();
 const rerender=()=>render();

@@ -12,6 +12,7 @@ on:
     branches: [main]
     paths:
       - 'data/movement.csv'
+      - 'segments/nonlife/data/movement.csv'
       - 'pipeline/ai_explain.py'
       - 'pipeline/guard.py'
       - '.github/workflows/ai-explain.yml'
@@ -41,18 +42,22 @@ jobs:
         name: AI 설명 생성 + 숫자 대조
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python pipeline/ai_explain.py ${{ inputs.force && '--force' || '' }}
+        run: |
+          python pipeline/ai_explain.py ${{ inputs.force && '--force' || '' }}
+          CSM_SEGMENT=nonlife python pipeline/ai_explain.py ${{ inputs.force && '--force' || '' }}
       - if: steps.key.outputs.has == 'true'
-        name: 화면 데이터·페이지 갱신
+        name: 화면 데이터·페이지 갱신 (생보·손보)
         run: |
           python pipeline/export_web.py
           python pipeline/build_site.py
+          CSM_SEGMENT=nonlife python pipeline/export_web.py
+          CSM_SEGMENT=nonlife python pipeline/build_site.py
       - if: steps.key.outputs.has == 'true'
         name: 결과 커밋
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
-          git add -A data index.html
+          git add -A data index.html segments nonlife.html
           if git diff --cached --quiet; then echo "변경 없음"; exit 0; fi
           git commit -m "AI 설명 갱신 (GitHub Actions 자동 실행)"
           git push

@@ -21,7 +21,8 @@ def add(co, y, rule, status, detail): out.append(dict(company=co, year=y, rule=r
 for _, r in mv.iterrows():
     co, y = r.company, r.year
     # R1 항등식: 기초 + 신계약 + 상각 + 이자부리 + 조정 = 기말
-    gap = r.open + r.new + r.release + r.interest + r.adjust - r.close
+    tr = sum(0 if pd.isna(r.get(k, 0)) else r.get(k, 0) for k in ('transfer', 'other'))   # 손보: 계약이전·합병, CSM 열의 손실부담 행(공시 표의 별도 행)
+    gap = r.open + r.new + r.release + r.interest + r.adjust + tr - r.close
     if '잔차' in str(r.source):   # 변동 요소 하나를 잔차로 계산한 경우 항등식은 항상 성립 → 검증으로 세지 않음
         add(co, y, 'R1 변동표 항등식', '자료없음', f'변동 요소 일부를 잔차로 산출({r.source.split("·")[-1].strip()}) → 항등식 검증 불가')
     else:
@@ -29,10 +30,20 @@ for _, r in mv.iterrows():
             f'기초+변동−기말 = {gap:,.1f}억')
     # R2 금감원(FISIS) 잔액 대조
     f = fz[(fz.company == co) & (fz.year == y)]
-    if len(f) and pd.notna(f.fisis_close.iloc[0]):
-        d = r.close - f.fisis_close.iloc[0]
-        add(co, y, 'R2 금감원 잔액 대조', '통과' if abs(d) <= TOL(r.close) else '불일치',
-            f'DART 기말 {r.close:,.0f}억 vs FISIS {f.fisis_close.iloc[0]:,.0f}억 (차이 {d:,.1f}억)')
+    liab = r.get('close_liab')                                    # 손보: 금감원 통계는 '부채인 보험계약'의 CSM만 → 같은 표의 부채 행과 대조
+    has_liab = liab is not None and pd.notna(liab)
+    if len(f) and pd.notna(f.fisis_close.iloc[0]) and '순액 범위' in str(r.source):
+        t = f.fisis_close.iloc[0]; ex = r.close / t - 1                # 순액만 공시 → 순액 ≥ 부채인 계약 CSM(금감원), +15% 이내로 골랐음
+        add(co, y, 'R2 금감원 잔액 대조', '통과' if -0.003 <= ex <= 0.15 else '불일치',
+            f'순액만 공시한 표: DART 순액 {r.close:,.0f}억 ≥ FISIS(부채인 계약) {t:,.0f}억, 초과 {ex:+.1%} (자산인 계약의 CSM) — 범위 대조')
+    elif len(f) and pd.notna(f.fisis_close.iloc[0]) and (f.fisis_close.iloc[0] != 0 or has_liab):
+        v = liab if has_liab else r.close
+        d = v - f.fisis_close.iloc[0]
+        what = f'DART 부채인 계약 기말 {v:,.0f}억(순액 {r.close:,.0f}억)' if has_liab else f'DART 기말 {v:,.0f}억'
+        add(co, y, 'R2 금감원 잔액 대조', '통과' if abs(d) <= TOL(v) else '불일치',
+            f'{what} vs FISIS {f.fisis_close.iloc[0]:,.0f}억 (차이 {d:,.1f}억)')
+    elif len(f) and f.fisis_close.iloc[0] == 0:
+        add(co, y, 'R2 금감원 잔액 대조', '자료없음', 'FISIS의 부채인 계약 CSM이 0(장기 계약이 모두 자산 쪽) → 당기·전기 표 연결로 선택, 금감원 대조 불가')
     else:
         add(co, y, 'R2 금감원 잔액 대조', '자료없음', 'FISIS 잔액 미게시 또는 미수집')
     # R3 연속성: 당기 기초 = 전기 기말
@@ -57,8 +68,8 @@ t['B1_chg'] = t.groupby('company').B1.pct_change() * 100
 for _, r in t.dropna(subset=['B1_chg']).iterrows():
     st = '주의' if abs(r.B1_chg) >= 50 else '통과'
     add(r.company, str(int(r.year)), 'R5 급변 탐지(위험보험료)', st, f'1년차 위험보험료 전년 대비 {r.B1_chg:+.0f}%')
-mv['offset'] = -mv.adjust / mv.new
-for y, g in mv[mv.year.isin([o for o in ORDER if len(o) == 4])].groupby('year'):   # 업계 분포는 연간 기간끼리
+mv['offset'] = (-mv.adjust / mv.new).where(mv.new > 0)        # 신계약이 0인 해(장기보험 판매 전·계약이전)는 상쇄율 없음
+for y, g in mv[mv.year.isin([o for o in ORDER if len(o) == 4]) & mv.offset.notna()].groupby('year'):   # 업계 분포는 연간 기간끼리
     med = g.offset.median(); mad = (g.offset - med).abs().median() * 1.4826
     for _, r in g.iterrows():
         z = (r.offset - med) / mad if mad > 0 else 0

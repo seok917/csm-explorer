@@ -409,6 +409,129 @@ def test_sensitivity_hand_checked_hanwha_2023():
         assert abs(r.iloc[0].p_exp + 0.0235) < 0.0005, r.iloc[0].p_exp
 
 
+
+# ---------- 손해보험(segments/nonlife) — 같은 파이프라인을 CSM_SEGMENT=nonlife로 돌린 결과 ----------
+ND = os.path.join(ROOT, 'segments', 'nonlife', 'data')
+NR = os.path.join(ROOT, 'segments', 'nonlife', 'raw')
+
+
+def _nl(f, **kw):
+    import pandas as pd
+    p = os.path.join(ND, f)
+    return pd.read_csv(p, dtype={'year': str, 'asof': str, 'report': str}, **kw) if os.path.exists(p) else None
+
+
+def test_nonlife_identity_holds():
+    """손보 변동표: 기초 + 신계약 + 상각 + 이자부리 + 조정 (+ 계약이전·합병, CSM 열의 손실부담 행) = 기말 — 모든 회사·기간"""
+    mv = _nl('movement.csv')
+    if mv is None:
+        return
+    assert len(mv) >= 70 and mv.close.notna().all(), len(mv)
+    for r in mv.fillna({'transfer': 0, 'other': 0}).itertuples():
+        if '잔차' in r.source:
+            continue
+        gap = r.open + r.new + r.release + r.interest + r.adjust + r.transfer + r.other - r.close
+        assert abs(gap) <= max(1.0, abs(r.close) * 0.001), (r.company, r.year, round(gap, 1))
+
+
+def test_nonlife_liability_rows_match_fisis():
+    """표를 고른 근거: 표의 '부채인 계약' 기말 CSM = 금감원 FISIS(SI152 잔여보장요소 보험계약마진). 순액 ≥ 부채인 계약(자산인 계약의 CSM이 더해짐)"""
+    mv, fz = _nl('movement.csv'), _nl('fisis.csv')
+    if mv is None:
+        return
+    m = mv.merge(fz, on=['company', 'year'], how='left')
+    n = 0
+    for r in m.itertuples():
+        if r.close_liab == r.close_liab and r.fisis_close == r.fisis_close and r.fisis_close > 0:
+            assert abs(r.close_liab - r.fisis_close) <= max(1.0, r.fisis_close * 0.003), (r.company, r.year, r.close_liab, r.fisis_close)
+            n += 1
+        if r.close_liab == r.close_liab:
+            assert r.close >= r.close_liab - 1, (r.company, r.year, r.close, r.close_liab)
+        if '순액 범위' in r.source:                      # 순액만 공시한 표: 금감원 값 이상, +15% 이내
+            assert r.fisis_close <= r.close + 1 and r.close <= r.fisis_close * 1.15 + 1, (r.company, r.year)
+    assert n >= 45, n
+
+
+def test_nonlife_hand_checked_db_2025():
+    """DB손해보험 2025 사업보고서 표 2114(XBRL형: 유배당·무배당 × [현재가치, 위험조정, CSM 3열, 합계])를 손으로 더한 값
+    기말 순액 CSM = 15,626+0+2,831+2,533,282+3,569,353+6,084,251 = 12,205,343백만원, 부채인 계약 = 11,537,419, 신계약 = 325+2,932,368"""
+    mv = _nl('movement.csv')
+    if mv is None:
+        return
+    r = mv[(mv.company == 'DB손해보험') & (mv.year == '2025')].iloc[0]
+    assert abs(r.close - 122053.4) < 0.1 and abs(r.close_liab - 115374.2) < 0.1 and abs(r.new - 29326.9) < 0.1, r.to_dict()
+    assert abs(r.open - 122317.6) < 0.1                    # = 2024 기말(순액)
+
+
+def test_nonlife_contract_transfer():
+    """엠지손해보험 2025: 계약이전 행으로 CSM 전액이 넘어가 기말 0 — 화면은 '계약이전' 막대로, 비율 지표는 비움"""
+    mv = _nl('movement.csv')
+    if mv is None:
+        return
+    r = mv[(mv.company == 'MG손해보험') & (mv.year == '2025')].iloc[0]
+    assert r.close == 0 and abs(r.transfer + 2713.3) < 0.2, r.to_dict()
+    web = json.load(open(os.path.join(ND, 'web.json'), encoding='utf-8'))
+    y = {c['name']: c for c in web['companies']}['MG손해보험']['years']['2025']
+    assert y['release_rate'] is None and y['replace'] is None and y['transfer'] < 0
+
+
+def test_nonlife_fisis_company_codes_pinned():
+    import pandas as pd
+    p = os.path.join(NR, 'fisis_companies.csv')
+    if not os.path.exists(p):
+        return
+    pin = {'0010633': '삼성화재', '0010636': 'DB손해보험', '0010634': '현대해상', '0010635': 'KB손해보험', '0010626': '메리츠화재',
+           '0010627': '한화손해보험', '0010628': '롯데손해보험', '0010630': '흥국화재', '0013174': 'NH농협손해보험', '0011354': '하나손해보험',
+           '0013376': 'MG손해보험', '0010653': 'AXA손해보험', '0013245': 'AIG손해보험', '0011353': '신한EZ손해보험',
+           '0019399': '카카오페이손해보험', '0017080': '캐롯손해보험'}
+    m = pd.read_csv(p, dtype=str).dropna(subset=['co'])
+    got = dict(zip(m.finance_cd, m.co))
+    for cd, co in pin.items():
+        assert got.get(cd) == co, (cd, got.get(cd), co)
+    assert m.co.value_counts().max() == 1 and len(m) == 16, m.co.value_counts().head()
+
+
+def test_nonlife_no_identical_series_across_companies():
+    for f, cols in (('movement.csv', ['open', 'new', 'release', 'close']), ('fisis_metrics.csv', ['kics', 'p13', 'p25', 'init_m']),
+                    ('schedule.csv', ['1년 이내', '1~2년', '2~5년', '5~10년', '10년 초과']), ('sensitivity.csv', ['d_mort', 'd_lapse_up'])):
+        d = _nl(f)
+        if d is None:
+            continue
+        d = d.dropna(subset=cols)
+        sig = d[cols].round(1).astype(str).agg('|'.join, axis=1)
+        owners = d.groupby(sig).company.nunique()
+        assert (owners <= 1).all(), (f, owners[owners > 1].index.tolist()[:3])
+
+
+def test_nonlife_schedule_and_sensitivity_match_close():
+    """손보 예정표 합계·민감도 기준 CSM이 그 시점 기말 CSM(순액)과 맞고, 예정표 기준일은 보고서 기간 이후가 아님"""
+    import pandas as pd
+    sc, se, mv = _nl('schedule.csv'), _nl('sensitivity.csv'), _nl('movement.csv')
+    if sc is None:
+        return
+    close = {(r.company, r.year[:4] + ('.06' if '상반기' in r.year else '.12')): r.close for r in mv.itertuples()}
+    for r in sc.itertuples():
+        assert r.asof <= r.report, (r.company, r.asof, r.report)
+        c = close.get((r.company, r.asof))
+        if c is not None:
+            assert abs(r.total - c) <= max(1.0, abs(c) * 0.002), (r.company, r.asof, r.total, c)
+        if r.basis != '할인 전':
+            assert abs(r.total - r.nominal) <= max(2, abs(r.total) * 0.01) or r.basis == '합계 열', (r.company, r.asof)
+    for r in se.itertuples():
+        assert 0.92 <= r.base / r.close <= 1.08, (r.company, r.asof, r.base, r.close)
+
+
+def test_nonlife_every_flag_reviewed_and_summaries_pass():
+    ck = list(csv.DictReader(open(os.path.join(ND, 'checks.csv'), encoding='utf-8-sig')))
+    bad = [(k['company'], k['year'], k['rule']) for k in ck if k['status'] in ('불일치', '주의') and not k['decision']]
+    assert not bad, bad
+    web = json.load(open(os.path.join(ND, 'web.json'), encoding='utf-8'))
+    assert web['meta']['seg']['key'] == 'nonlife' and web['meta']['n_company'] >= 15
+    for c in web['companies']:
+        for y, r in c['years'].items():
+            assert r['summary_guard']['ok'], (c['name'], y, r['summary_guard'])
+
+
 def pd_notna(v):
     import pandas as pd
     return pd.notna(v)

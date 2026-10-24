@@ -206,7 +206,8 @@ def main():
     last = {}
     for (co, per, rc, doc, tno), g in x.groupby(['co', 'period', 'rcept_no', 'doc', 'tn'], sort=False):
         yr = int(per[:4])
-        targets = {k[1]: v for k, v in asof.items() if k[0] == co and k[1] in (per, f'{yr - 1}.12')}   # 그 보고서의 당기·전기 시점만
+        targets = {k[1]: v for k, v in asof.items() if k[0] == co and k[1] in (per, f'{yr - 1}.12') and v >= 10}   # 그 보고서의 당기·전기 시점만
+        # (CSM 10억 원 미만 — 계약이전으로 0이 된 해, 장기보험이 거의 없는 디지털 손보 — 은 합계 허용오차(1억)보다 의미 있는 대응이 어려워 제외)
         G = grid(g)
         if G is None:
             continue
@@ -258,7 +259,7 @@ def main():
         yr = int(per[:4])
         allowed = {per}            # 할인 전 표는 합계가 기말과 정확히 맞지 않아 시점 근거가 약함 → 그 보고서의 당기 시점에만
         for u in units:
-            for when, close in {k[1]: v for k, v in asof.items() if k[0] == co and k[1] in allowed}.items():
+            for when, close in {k[1]: v for k, v in asof.items() if k[0] == co and k[1] in allowed and v >= 10}.items():
                 r = raw * UNITS[u] / close if close else 0
                 if 1.0 <= r <= 1.2 and (co, when, per) not in found and (best is None or r < best[0]):
                     best = (r, when, close, u)
@@ -281,6 +282,7 @@ def main():
         ev.append(dict(company=co, asof=when, report=per, vintage=vint, fmt=f['fmt'], main_fmt=f['fmt'] == mf, total=f['total'], nominal=tot, basis=f['basis'], s1=cum_share(vec, tot, 1), s5=cum_share(vec, tot, 5),
                        s10p=None if cum_share(vec, tot, 10) is None else 1 - cum_share(vec, tot, 10),
                        half=None if hp is None else (99.0 if hp == np.inf else round(hp, 2)),
+                       tail_from=next((lo for (lo, hi), _ in vec if hi == np.inf), None),     # 마지막 열린 구간의 시작(예: '5년 초과'면 5) — 절반 시점이 그 뒤일 때 문장에 씀
                        pred1=sum(v for (lo, hi), v in vec if hi <= 1 + 1e-9) if cum_share(vec, tot, 1) is not None else None))
     S, E = pd.DataFrame(sched), pd.DataFrame(ev)
     # 백테스트: 연말 예정 1년 이내 vs 다음 해 실제 상각(연간)

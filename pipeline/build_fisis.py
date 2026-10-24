@@ -23,6 +23,43 @@ def period(bm):
     return bm[:4] if bm.endswith('12') else (bm[:4] + ' 상반기' if bm.endswith('06') else None)
 
 
+def main_nonlife(f):
+    """손보 지표(억 원·%·배). 금액은 그해 1월부터의 누계(반기 값은 반기 누계)
+    - kics·kics_pre·p13·p25: 생보와 같은 뜻
+    - csm_liab   : 부채인 보험계약의 CSM(SI152) — 표 선택 기준(화면 CSM은 공시 주석의 순액)
+    - prem_long·prem_auto·prem_gen: 보유보험료(SI138) 장기·자동차·일반 → long_share 장기 비중
+    - gmm_ratio  : 장기(일반모형·변동수수료) 보험서비스비용 ÷ 보험수익 (SI150) — 높을수록 보험수익(CSM 상각·예상보험금 등) 중 실제 비용이 큼
+    - paa_ratio  : 보험료배분접근법(자동차·일반 등 단기) 보험서비스비용 ÷ 보험수익 — 손해율+사업비율에 가까운 '단기 합산비율'(재보험 전)
+    - init_m     : 초회보험료 중 월납(SI028) — 장기보험 신계약 규모(월납 첫 회 보험료의 그해 누계)
+    - multiple   : 신계약 CSM ÷ 월납 초회보험료"""
+    pick = lambda ln, cd, col=None: (f[(f.list_no == ln) & (f.account_cd == cd) & ((f.column == col) if col else True)]
+                                     .groupby(['co', 'year']).v.first())
+    out = pd.DataFrame({
+        'kics': pick('SI021', 'D'), 'kics_pre': pick('SI021', 'A'),
+        'p13': pick('SI025', 'A'), 'p25': pick('SI025', 'B'),
+        'csm_liab': pick('SI152', 'A113') / 1e8,
+        'prem_long': pick('SI138', 'A') / 1e8, 'prem_auto': pick('SI138', 'B') / 1e8, 'prem_gen': pick('SI138', 'C') / 1e8,
+        'gmm_rev': pick('SI150', 'A11', '누계') / 1e8, 'gmm_cost': pick('SI150', 'A21', '누계') / 1e8,
+        'paa_rev': pick('SI150', 'A12', '누계') / 1e8, 'paa_cost': pick('SI150', 'A22', '누계') / 1e8,
+        'init_m': pick('SI028', 'A3') / 1e8,
+    })
+    out.index = out.index.set_names(['company', 'year'])
+    out['kics'] = out.kics.where(out.kics > 0, out.kics_pre)
+    for k in ('p13', 'p25'):                                           # 유지율 0 = 해당 계약 없음(디지털 손보 등)
+        out[k] = out[k].where(out[k] > 0)
+    tot = out[['prem_long', 'prem_auto', 'prem_gen']].sum(axis=1)
+    out['long_share'] = (out.prem_long / tot).where(tot > 0)
+    out['gmm_ratio'] = (out.gmm_cost / out.gmm_rev).where(out.gmm_rev > 100)        # 보험수익이 100억 이하면 비율이 흔들려 제외
+    out['paa_ratio'] = (out.paa_cost / out.paa_rev).where(out.paa_rev > 100)
+    mv = pd.read_csv(os.path.join(D, 'movement.csv'), dtype={'year': str}).set_index(['company', 'year'])
+    out = out.join(mv.new.rename('new_csm'), how='left')
+    out['multiple'] = (out.new_csm / out.init_m).where(out.init_m >= 30)
+    out = out.reset_index().drop(columns=['new_csm'])
+    out.round(4).to_csv(os.path.join(D, 'fisis_metrics.csv'), index=False, encoding='utf-8-sig')
+    print(f"FISIS 손보 지표 {len(out)}행 · 회사 {out.company.nunique()}곳")
+    return out
+
+
 def main():
     src = os.path.join(B, 'raw', 'fisis_stats.csv')
     if not os.path.exists(src):
@@ -31,6 +68,8 @@ def main():
     f['v'] = pd.to_numeric(f.value, errors='coerce')
     f['year'] = f.base_month.map(period)
     f = f.dropna(subset=['year'])
+    if seg.SEG == 'nonlife':
+        return main_nonlife(f)
     pick = lambda ln, cd, col=None: (f[(f.list_no == ln) & (f.account_cd == cd) & ((f.column == col) if col else True)]
                                      .set_index(['co', 'year']).v)
     out = pd.DataFrame({
@@ -55,4 +94,4 @@ if __name__ == '__main__':
     o = main()
     if o is not None:
         print(o[o.year == '2025'].round(2).sort_values('multiple', ascending=False).to_string())
-        print(o[o.company == '신한라이프'].round(2).to_string())
+        print(o[o.company == ('DB손해보험' if seg.SEG == 'nonlife' else '신한라이프')].round(2).to_string())

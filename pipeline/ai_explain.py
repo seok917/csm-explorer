@@ -51,6 +51,10 @@ def build_facts_text(name, year, rec, ae=None):
              item('기초 CSM', rec['open']), item('신계약 CSM', rec['new']), item('CSM 상각', rec['release']),
              item('이자부리', rec['interest']), item('조정 추정치 변동', rec['adjust']), item('기말 CSM', rec['close']),
              item('기말−기초 증감', rec['close'] - rec['open'])]
+    if rec.get('transfer') is not None:                     # 손보: 계약이전·합병 행(엠지손보 2025 등) — 없으면 줄을 넣지 않아 생보 자료는 그대로
+        lines.append(item('계약이전·합병', rec['transfer']))
+    if rec.get('other') is not None:
+        lines.append(item('손실부담계약 인식·환입(CSM 열에 공시)', rec['other']))
     if rec.get('offset') is not None:
         lines.append(f"조정 추정치 변동 ÷ 신계약 CSM: 표기 {rec['offset'] * 100:.0f}%")
     if rec.get('adjust_post') is not None:
