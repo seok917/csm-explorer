@@ -19,11 +19,12 @@ import glob, itertools, os, re, sys
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(__file__))
-from build_data import SHORT
+import seg
+SHORT = seg.short_map()
 from periods import label, report_period, order_key, prev_year_end, wanted
 
 DUMP = os.environ.get('CSM_DUMP', 'output/all_tables')
-D = os.path.join(os.path.dirname(__file__), '..', 'data')
+D = seg.DATA
 
 # 행 라벨 정규식 — 회사마다 다른 표현을 모음
 REL = (r'상각|제공된 서비스에 대해 인식한|제공된 서비스 관련|서비스를 제공한|당기인식분|인식한 보험계약마진|당기손익으로 인식[한된] 보험계약마진|서비스 제공에 따른 보험계약마진'
@@ -274,7 +275,7 @@ def fill_residual(res):
     return res
 
 
-SNAP = os.path.join(os.path.dirname(__file__), '..', 'raw', 'csm_tables.csv.gz')
+SNAP = os.path.join(seg.RAW, 'csm_tables.csv.gz')
 
 
 def reports():

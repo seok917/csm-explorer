@@ -5,6 +5,7 @@
   bucket   : 그 밖에 '○년'이 3번 이상 나오는 보험 관련 표 → 머리글 형식이 다른 예정표 후보(합계가 기말 CSM과 맞는지로 판별)
   csm      : '보험계약마진'이 있는 나머지 표 → 조정 항목 분해 등
   kics     : '지급여력' 또는 'K-ICS' → 지급여력비율
+  claims   : '예상보험금'·'위험보험료'·'손해율'·'예실차' → 보험금 예실차·예상손해율
   biz      : '유지율' 또는 '초회보험료'/'신계약' 실적 → 영업 지표
 - 결과: raw/extra_tables.csv.gz  (열: co, period, rcept_no, doc, table_no, kind, row, col, value)
 - 키: 환경변수 DART_API_KEY (GitHub Secrets). 실행: GitHub Actions '보강 수집' 워크플로
@@ -67,6 +68,8 @@ def kind_of(txt, ctx=''):
         return 'csm'
     if '지급여력' in txt or 'K-ICS' in txt.upper():
         return 'kics'
+    if re.search('예상보험금|위험보험료|손해율|예실차', txt):
+        return 'claims'                               # 보험금 예실차·예상손해율(손보 장기 위험손해율 등)
     if '유지율' in txt or '초회보험료' in txt:
         return 'biz'
     return None

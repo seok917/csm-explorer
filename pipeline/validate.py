@@ -5,7 +5,8 @@
 import pandas as pd, numpy as np, os, sys, time
 sys.path.insert(0, os.path.dirname(__file__))
 from periods import prev_year_end, sort_labels
-D = os.path.join(os.path.dirname(__file__), '..', 'data')
+import seg
+D = seg.DATA
 t0 = time.perf_counter()
 mv = pd.read_csv(f'{D}/movement.csv', dtype={'year': str})
 fz = pd.read_csv(f'{D}/fisis.csv', dtype={'year': str})

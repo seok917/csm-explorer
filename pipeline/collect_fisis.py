@@ -1,6 +1,7 @@
 """
-FISIS(금융통계정보시스템) 오픈API 수집: 생명보험사 통계 중 CSM 해석에 쓸 지표만
-- SH021 지급여력(RBC/K-ICS)  · SH025 유지율(13·25회차 등)  · SH160 신계약  · SH166 수입보험료
+FISIS(금융통계정보시스템) 오픈API 수집: 보험사 통계 중 CSM 해석에 쓸 지표만 (업권은 seg.py)
+- 손보(CSM_SEGMENT=nonlife): SI021 자본적정성·SI025 유지율·SI114 경영효율·SI137 주요손익·SI151 손익원천·SI152 책임준비금 등
+- 생보 SH021 지급여력(RBC/K-ICS)  · SH025 유지율(13·25회차 등)  · SH160 신계약  · SH166 수입보험료
 - 키: 환경변수 FISIS_API_KEY (GitHub Secrets) — 코드에 없음
 - 결과: raw/fisis_stats.csv  (co, list_no, list_nm, term, base_month, account_cd, account_nm, column, value)
         raw/fisis_companies.csv (FISIS 회사코드 ↔ 분석 대상 22개사 대응표, 확인용)
@@ -13,8 +14,16 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(__file__))
 from collect_dart import note, B
 
+import seg
+
 API = 'https://fisis.fss.or.kr/openapi'
 LISTS = {'SH021': '지급여력', 'SH025': '유지율', 'SH160': '신계약', 'SH166': '수입보험료'}
+PART = 'H'                                              # FISIS 업권 코드: H 생명보험, I 손해보험
+if seg.SEG == 'nonlife':
+    PART = 'I'
+    LISTS = {'SI021': '자본적정성', 'SI025': '유지율', 'SI114': '경영효율지표', 'SI137': '주요손익현황', 'SI138': '종목별 보유보험료',
+             'SI147': '재무상태표(부채·자본)', 'SI150': '손익계산서', 'SI151': '손익발생원천별 실적', 'SI152': '책임준비금',
+             'SI027': '보험료 수입(수납형태)', 'SI028': '보험료 수입(납입방법)', 'SI029': '보험료 수입(모집방법)'}
 START, END = '202312', time.strftime('%Y%m')
 # FISIS 회사명(정식 명칭·음차 표기) → 분석 대상 이름
 KEYS = [('케이디비', 'KDB생명'), ('KDB', 'KDB생명'), ('삼성생명', '삼성생명'), ('한화생명', '한화생명'), ('교보라이프플래닛', '교보라이프플래닛'), ('라이프플래닛', '교보라이프플래닛'),
@@ -24,6 +33,13 @@ KEYS = [('케이디비', 'KDB생명'), ('KDB', 'KDB생명'), ('삼성생명', '�
         ('iM라이프', 'iM라이프'), ('아이엠라이프', 'iM라이프'), ('DGB생명', 'iM라이프'),
         ('하나생명', '하나생명'), ('IBK', 'IBK연금'), ('아이비케이', 'IBK연금'), ('푸본현대', '푸본현대생명'), ('처브', '처브라이프'),
         ('카디프', 'BNP카디프생명')]
+ALLOW_CLOSED = ()                                        # [폐] 표시가 있어도 받을 법인(합병으로 사라졌지만 그 전 기간은 분석 대상)
+if seg.SEG == 'nonlife':
+    KEYS = [('삼성화재', '삼성화재'), ('DB손해', 'DB손해보험'), ('현대해상', '현대해상'), ('KB손해', 'KB손해보험'), ('메리츠화재', '메리츠화재'),
+            ('한화손해', '한화손해보험'), ('롯데손해', '롯데손해보험'), ('흥국화재', '흥국화재'), ('농협손해', 'NH농협손해보험'),
+            ('하나손해', '하나손해보험'), ('엠지손해', 'MG손해보험'), ('악사손해', 'AXA손해보험'), ('에이아이지손해', 'AIG손해보험'),
+            ('신한EZ', '신한EZ손해보험'), ('카카오페이손해', '카카오페이손해보험'), ('캐롯손해', '캐롯손해보험')]
+    ALLOW_CLOSED = ('캐롯',)
 
 
 def call(op, key, **params):
@@ -58,7 +74,7 @@ def legend(res):
 
 
 def match(name):
-    if '[폐]' in name:                                  # 폐업·합병된 옛 법인 제외
+    if '[폐]' in name and not any(k in name for k in ALLOW_CLOSED):   # 폐업·합병된 옛 법인 제외
         return None
     n = name.replace(' ', '').upper()
     for k, v in KEYS:
@@ -94,15 +110,15 @@ def main():
     key = os.environ.get('FISIS_API_KEY')
     if not key:
         note('FISIS_API_KEY가 등록되지 않아 FISIS 수집을 건너뜁니다.', 'warning'); return
-    cd, msg, res = call('companySearch', key, partDiv='H')
+    cd, msg, res = call('companySearch', key, partDiv=PART)
     if cd != '000':
         raise SystemExit(f'FISIS 회사 목록 오류 {cd}: {msg}')
     comp = pd.DataFrame(rows(res))
     comp['co'] = comp.finance_nm.map(match)
     comp.to_csv(os.path.join(B, 'raw', 'fisis_companies.csv'), index=False, encoding='utf-8-sig')
     tgt = comp.dropna(subset=['co']).drop_duplicates('co')
-    note(f"FISIS 생명보험사 {len(comp)}곳 중 분석 대상 {len(tgt)}곳 대응"
-         + (f" · 못 찾음: {sorted(set(KEYS[i][1] for i in range(len(KEYS))) - set(tgt.co))}" if len(tgt) < 22 else ''))
+    miss = sorted(set(v for _, v in KEYS) - set(tgt.co))
+    note(f"FISIS {seg.LABEL}사 {len(comp)}곳 중 분석 대상 {len(tgt)}곳 대응" + (f" · 못 찾음: {miss}" if miss else ''))
     out = []
     errs = []
     for r in tgt.itertuples():

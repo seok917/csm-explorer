@@ -5,7 +5,8 @@
 import pandas as pd, numpy as np, json, os, time, sys
 sys.path.insert(0, os.path.dirname(__file__))
 from guard import verify, facts_from
-D = os.path.join(os.path.dirname(__file__), '..', 'data')
+import seg
+D = seg.DATA
 t0 = time.perf_counter()
 mv = pd.read_csv(f'{D}/movement.csv', dtype={'year': str})
 asm = pd.read_csv(f'{D}/assump.csv', dtype={'year': str})
@@ -201,7 +202,6 @@ data['meta'] = dict(n_company=len(data['companies']), n_checks=int(len(ck)), n_r
                     check_counts=ck.status.value_counts().to_dict(), reviewed=int((ck.status.isin(['불일치','주의']) & (ck.decision != '')).sum()), flagged=int(ck.status.isin(['불일치','주의']).sum()), offset_median={k: round(v, 4) for k, v in med.items()},
                     release_rate_median={k: round(v, 4) for k, v in med_rr.items()}, replace_median={k: round(v, 3) for k, v in med_rep.items()},
                     built=pd.Timestamp.now(tz='Asia/Seoul').strftime('%Y-%m-%d'))
-os.makedirs(f'{D}/../site', exist_ok=True)
 def clean(o):   # NaN·numpy 값 → JSON 표준값
     if isinstance(o, dict): return {k: clean(v) for k, v in o.items()}
     if isinstance(o, list): return [clean(v) for v in o]

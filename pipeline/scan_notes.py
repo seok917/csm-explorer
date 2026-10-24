@@ -4,8 +4,11 @@ R6 보조: 공시 원문(표 셀·표 앞 문단)에서 '산출 기준 변경' �
 """
 import pandas as pd, glob, re, os
 DUMP = os.environ.get('CSM_DUMP', 'output/all_tables')   # 17_dart_all_tables.R 결과 폴더
-OUT = os.path.join(os.path.dirname(__file__), '..', 'data')
-from build_data import SHORT
+import sys
+sys.path.insert(0, os.path.dirname(__file__))
+import seg
+OUT = seg.DATA
+SHORT = seg.short_map()
 TOPIC = re.compile(r'예상보험금|예실차|손해율|보험계약마진|계약서비스마진|위험보험료')
 SIGNAL = re.compile(r'(?:제외하여 작성|제외하고 작성|제도\s?변경|산출\s?기준.{0,8}변경|변경된 기준|기준을 변경|재작성|포함하여 작성)')
 rows = []

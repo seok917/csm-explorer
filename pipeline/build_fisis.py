@@ -11,7 +11,10 @@ FISIS 원자료(raw/fisis_stats.csv) → 회사·기간별 지표(data/fisis_met
 import os
 import pandas as pd
 
-B = os.path.join(os.path.dirname(__file__), '..')
+import sys
+sys.path.insert(0, os.path.dirname(__file__))
+import seg
+B = seg.BASE
 D = os.path.join(B, 'data')
 
 

@@ -1,7 +1,8 @@
 """
 분기 자동 업데이트 1단계: DART Open API에서 새 정기보고서를 받아 CSM 표만 원문 스냅숏에 추가
 - 키: 환경변수 DART_API_KEY (GitHub Secrets) — 코드에 없음
-- 대상: 분석 대상 22개사. 정기보고서(사업·반기·분기)를 내는 회사는 정기보고서, 아니면 감사보고서
+- 대상: 업권(seg.py, CSM_SEGMENT)의 분석 대상 회사. 정기보고서(사업·반기·분기)를 내는 회사는 정기보고서, 아니면 감사보고서
+- 처음 수집(--backfill 또는 받은 보고서 목록이 없을 때): 이름표의 모든 회사에서 2024년 이후 접수된 연간·반기 보고서
 - 새 보고서 = 이미 받은 최신 기간(raw/filings.csv) 이후 기간, 또는 이미 받은 기간의 정정공시(더 최근 접수)
 - 원문(document.xml) → 문서 순서대로 최상위 표를 행·열 셀로 펼침 (R 17_dart_all_tables.R과 같은 규칙: libxml2 HTML 파서)
 - '보험계약마진'과 '기말'이 있는 표만 raw/csm_tables.csv.gz에 추가 (정정공시면 같은 기간의 표를 교체)
@@ -15,10 +16,11 @@ import pandas as pd
 from lxml import etree, html as LH
 
 sys.path.insert(0, os.path.dirname(__file__))
-from build_data import SHORT
+import seg
 from periods import label, order_key, wanted
 
-B = os.path.join(os.path.dirname(__file__), '..')
+SHORT = seg.short_map()                            # 업권별 회사 이름표(생보: build_data.SHORT, 손보: seg.NONLIFE_SHORT)
+B = seg.BASE                                       # 생보: 저장소 루트, 손보: segments/nonlife
 SNAP = os.path.join(B, 'raw', 'csm_tables.csv.gz')
 FILINGS = os.path.join(B, 'raw', 'filings.csv')
 API = 'https://opendart.fss.or.kr/api'
@@ -167,32 +169,53 @@ def main():
         same = verify(key, sys.argv[i + 1], sys.argv[i + 2])
         sys.exit(0 if same >= 0.99 else 1)
 
-    have = pd.read_csv(FILINGS, dtype=str)
+    backfill = '--backfill' in sys.argv or not os.path.exists(FILINGS)   # 처음 수집하는 업권(손보): 받은 보고서 목록이 없음
+    have = pd.read_csv(FILINGS, dtype=str) if os.path.exists(FILINGS) else pd.DataFrame(columns=['co', 'source', 'period', 'report_nm', 'rcept_no', 'rcept_dt'])
+    if not os.path.exists(SNAP):
+        pd.DataFrame(columns=COLS).to_csv(SNAP, index=False, encoding='utf-8', compression='gzip')
     last = {(r.co, r.period): r for r in have.itertuples()}
     done_labels = {label(p) for p in have.period}
     audit_only = set(have[have.source == '감사보고서'].co)          # 정기보고서를 내지 않는 회사
     codes = corp_codes(key)
+    targets = sorted(set(SHORT.values())) if backfill else sorted(set(have.co))   # 처음이면 이름표의 모든 회사
     todo = []
-    for co in sorted(set(have.co)):
+    for co in targets:
         if co not in codes:
             print(f'{co}: DART 고유번호를 찾지 못함'); continue
-        if co in audit_only:
+        fs = [] if co in audit_only else pick(list_filings(key, codes[co], 'A', '20240101'), '사업보고서|반기보고서|분기보고서')
+        src = '정기보고서'
+        if not fs:                                    # 정기보고서를 내지 않는 회사(비상장) → 감사보고서(별도)
             fs, src = pick(list_filings(key, codes[co], 'F', '20240101'), '감사보고서', exclude='연결'), '감사보고서'
-        else:
-            fs, src = pick(list_filings(key, codes[co], 'A', '20240101'), '사업보고서|반기보고서|분기보고서'), '정기보고서'
         for f in fs:
+            if backfill and f['period'] < '2023.12':      # IFRS17 첫 연간(2023)부터 — 생보와 같은 기간
+                continue
             old = last.get((co, f['period']))
             is_new = old is None and wanted(label(f['period']), done_labels)   # 회사마다: 없는 연간·이번 반기(늦게 낸 보고서도)
             is_fix = old is not None and (f['rcept_dt'], f['rcept_no']) > (old.rcept_dt, old.rcept_no)
             if is_new or is_fix:
                 todo.append((co, src, f, '정정' if is_fix else '신규'))
-    print(f'확인한 회사 {len(set(have.co))}곳 · 새로 받을 보고서 {len(todo)}건')
+    print(f'확인한 회사 {len(targets)}곳 · 새로 받을 보고서 {len(todo)}건')
 
     added = []
     snap = pd.read_csv(SNAP, dtype=str).fillna('')
+    extra = []                                        # 처음 수집: 같은 원문에서 보강 표(예정표·민감도·지급여력 등)도 함께 저장
+    if backfill:
+        import collect_extra as X
+
+        def save_extra():
+            old_x = pd.read_csv(X.OUT, dtype=str).fillna('') if os.path.exists(X.OUT) else pd.DataFrame(columns=X.COLS)
+            new_x = pd.concat(extra, ignore_index=True) if extra else pd.DataFrame(columns=X.COLS)
+            old_x = old_x[~old_x.rcept_no.isin(set(new_x.rcept_no))]
+            pd.concat([old_x, new_x], ignore_index=True).to_csv(X.OUT, index=False, encoding='utf-8', compression='gzip')
     for co, src, f, why in todo:
         print(f"  [{why}] {co} {f['period']} {f['report_nm']} ({f['rcept_no']})")
-        cells = tables_of(get('document.xml', {'crtfc_key': key, 'rcept_no': f['rcept_no']}, binary=True))
+        z = get('document.xml', {'crtfc_key': key, 'rcept_no': f['rcept_no']}, binary=True)
+        if backfill:                                  # 표 앞 문맥까지 한 번에 펼침(번호 규칙은 tables_of와 같음)
+            cc = X.tables_ctx(z)
+            cells = [(d, t, r, c, v) for d, t, _, r, c, v in cc]
+            extra.append(X.pick_tables(cc, dict(co=co, period=f['period'], rcept_no=f['rcept_no'])))
+        else:
+            cells = tables_of(z)
         df = csm_only(cells, co, f)
         if df.empty:
             print('    CSM 표를 찾지 못해 건너뜀'); continue
@@ -201,10 +224,16 @@ def main():
                           pd.DataFrame([dict(co=co, source=src, **f)])], ignore_index=True)
         added.append(f"{co} {f['period']}")
         print(f"    CSM 표 {df.groupby(['doc', 'table_no']).ngroups}개 추가")
+        if backfill and len(added) % 10 == 0:         # 처음 수집은 보고서가 많음 → 중간 저장(시간 초과 대비)
+            snap.to_csv(SNAP, index=False, encoding='utf-8', compression='gzip')
+            have.sort_values(['co', 'period']).to_csv(FILINGS, index=False, encoding='utf-8')
+            save_extra()
         time.sleep(1)
     if added:
         snap.to_csv(SNAP, index=False, encoding='utf-8', compression='gzip')
         have.sort_values(['co', 'period']).to_csv(FILINGS, index=False, encoding='utf-8')
+    if backfill:
+        save_extra()
     note(f"확인 {len(set(have.co))}개사 · 새 보고서 {len(todo)}건 · 추가: {', '.join(added) if added else '없음'}")
     gh_output(new=len(added))
 

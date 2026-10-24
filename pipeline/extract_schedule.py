@@ -16,7 +16,8 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(__file__))
-B = os.path.join(os.path.dirname(__file__), '..')
+import seg
+B = seg.BASE
 D = os.path.join(B, 'data')
 SRC = os.path.join(B, 'raw', 'extra_tables.csv.gz')
 STD = [(0, 1), (1, 2), (2, 5), (5, 10), (10, np.inf)]

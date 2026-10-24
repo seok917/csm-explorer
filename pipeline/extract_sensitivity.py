@@ -17,7 +17,8 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(__file__))
 from extract_schedule import num, UNITS
 
-B = os.path.join(os.path.dirname(__file__), '..')
+import seg
+B = seg.BASE
 D = os.path.join(B, 'data')
 SHOCKS = [('mort', '사망률 상승'), ('morb', '장해·질병(정액) 상승'), ('indem', '실손 상승'),
           ('lapse_up', '해지율 상승'), ('lapse_dn', '해지율 하락'), ('exp', '사업비 상승')]

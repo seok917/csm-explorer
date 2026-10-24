@@ -15,7 +15,8 @@ import csv, hashlib, json, os, re, sys, time, urllib.request, urllib.error
 sys.path.insert(0, os.path.dirname(__file__))
 from guard import verify, facts_from
 
-D = os.path.join(os.path.dirname(__file__), '..', 'data')
+import seg
+D = seg.DATA
 MODEL = os.environ.get('CSM_AI_MODEL', 'claude-haiku-4-5-20251001')   # 비용이 낮은 모델 기본, 환경변수로 변경
 API = 'https://api.anthropic.com/v1/messages'
 
