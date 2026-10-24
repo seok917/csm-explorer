@@ -209,7 +209,10 @@ def main():
             if backfill and f['period'] < '2023.12':      # IFRS17 첫 연간(2023)부터 — 생보와 같은 기간
                 continue
             old = last.get((co, f['period']))
-            is_new = old is None and wanted(label(f['period']), done_labels)   # 회사마다: 없는 연간·이번 반기(늦게 낸 보고서도)
+            if backfill:                                  # 처음 수집: 회사마다 2023년 말 이후 연간·반기 전부(생보와 같은 기간 구성)
+                is_new = old is None and not label(f['period']).endswith('분기')
+            else:
+                is_new = old is None and wanted(label(f['period']), done_labels)   # 회사마다: 없는 연간·이번 반기(늦게 낸 보고서도)
             is_fix = old is not None and (f['rcept_dt'], f['rcept_no']) > (old.rcept_dt, old.rcept_no)
             if is_new or is_fix:
                 todo.append((co, src, f, '정정' if is_fix else '신규'))
