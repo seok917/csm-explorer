@@ -70,7 +70,8 @@ for _, r in t.dropna(subset=['B1_chg']).iterrows():
     add(r.company, str(int(r.year)), 'R5 급변 탐지(위험보험료)', st, f'1년차 위험보험료 전년 대비 {r.B1_chg:+.0f}%')
 mv['offset'] = (-mv.adjust / mv.new).where(mv.new > 0)        # 신계약이 0인 해(장기보험 판매 전·계약이전)는 상쇄율 없음
 for y, g in mv[mv.year.isin([o for o in ORDER if len(o) == 4]) & mv.offset.notna()].groupby('year'):   # 업계 분포는 연간 기간끼리
-    med = g.offset.median(); mad = (g.offset - med).abs().median() * 1.4826
+    gb = g[g.close >= 100]                                          # 분포(중앙값·MAD)는 CSM 100억 원 이상 회사로 — 화면의 업계 중앙값과 같은 기준
+    med = gb.offset.median(); mad = (gb.offset - med).abs().median() * 1.4826
     for _, r in g.iterrows():
         z = (r.offset - med) / mad if mad > 0 else 0
         add(r.company, y, 'R5 급변 탐지(상쇄율)', '주의' if abs(z) >= 3 else '통과',

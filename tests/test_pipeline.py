@@ -426,7 +426,7 @@ def test_nonlife_identity_holds():
     mv = _nl('movement.csv')
     if mv is None:
         return
-    assert len(mv) >= 70 and mv.close.notna().all(), len(mv)
+    assert len(mv) >= 50 and mv.close.notna().all(), len(mv)      # 15개사 × (연간 3 + 최근 반기) — 생보와 같은 기간 구성
     for r in mv.fillna({'transfer': 0, 'other': 0}).itertuples():
         if '잔차' in r.source:
             continue
@@ -449,7 +449,7 @@ def test_nonlife_liability_rows_match_fisis():
             assert r.close >= r.close_liab - 1, (r.company, r.year, r.close, r.close_liab)
         if '순액 범위' in r.source:                      # 순액만 공시한 표: 금감원 값 이상, +15% 이내
             assert r.fisis_close <= r.close + 1 and r.close <= r.fisis_close * 1.15 + 1, (r.company, r.year)
-    assert n >= 45, n
+    assert n >= 38, n
 
 
 def test_nonlife_hand_checked_db_2025():
@@ -510,6 +510,39 @@ def test_shown_ai_text_matches_current_numbers():
                 if r.get('ai'):
                     g = verify(r['ai']['text'], facts_from(r))
                     assert g['ok'], (c['name'], y, g['mismatches'])
+
+
+def test_ratios_and_medians_follow_definitions():
+    """화면 비율·순위·업계 중앙값을 movement.csv에서 다시 계산해 대조(생보·손보).
+    신계약 0 이하 → 상쇄율 없음, 기말 0 이하 → 상각률·대체율 없음, 업계 중앙값은 CSM 100억 원 이상 회사만"""
+    import pandas as pd, statistics as st
+    for base in (D, ND):
+        p = os.path.join(base, 'web.json')
+        if not os.path.exists(p):
+            continue
+        W = json.load(open(p, encoding='utf-8')); C = {c['name']: c for c in W['companies']}
+        mv = pd.read_csv(os.path.join(base, 'movement.csv'), dtype={'year': str})
+        for r in mv.itertuples():
+            y = C[r.company]['years'][r.year]
+            exp_off = None if r.new <= 0 else -r.adjust / r.new
+            exp_rr = None if r.close <= 0 else -r.release / (r.close - r.release)
+            for k, e in (('offset', exp_off), ('release_rate', exp_rr)):
+                assert (y[k] is None) == (e is None) and (e is None or abs(y[k] - e) < 1e-3), (r.company, r.year, k, y[k], e)
+            assert y['rank'] == 1 + int((mv[mv.year == r.year].close > r.close).sum())
+        for yr, g in mv[mv.close >= 100].groupby('year'):
+            off = [-a / n for a, n in zip(g.adjust, g.new) if n > 0]
+            assert abs(W['meta']['offset_median'][yr] - st.median(off)) < 1e-3, (base, yr)
+
+
+def test_won_format():
+    """금액 표기: 반올림 뒤 조·억으로 나눔(1조 10,000억 방지), 10억 원 미만은 소수 첫째 자리"""
+    import importlib.util, types
+    src = open(os.path.join(ROOT, 'pipeline', 'export_web.py'), encoding='utf-8').read()
+    code = src[src.index('def won(x):'):src.index("mv['offset']")]
+    ns = {}
+    exec(code, ns)
+    won = ns['won']
+    assert won(19999.7) == '2조 원' and won(12345.4) == '1조 2,345억 원' and won(-8.64) == '−8.6억 원' and won(0) == '0원'
 
 
 def test_nonlife_contract_transfer():

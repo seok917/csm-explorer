@@ -51,9 +51,11 @@ def main():
     pl['year'] = pl.base_month.map(label)
     prem = pl.dropna(subset=['year', 'v']).groupby(['co', 'year']).v.first()
     fil = pd.read_csv(os.path.join(seg.RAW, 'filings.csv'), dtype=str)
-    from periods import label as plabel, prev_year_end
+    from periods import label as plabel, prev_year_end, wanted
+    annual = {plabel(p) for p in fil.period if p.endswith('.12')}
     rows = []
-    for co, per in sorted({(r.co, plabel(r.period)) for r in fil.itertuples() if r.period[-2:] in ('06', '12')}):
+    # 기간 구성은 생보와 같게: 연간 전부 + 마지막 연간보다 뒤의 반기만(지난 반기는 화면 기간에 없음 — periods.wanted)
+    for co, per in sorted({(r.co, plabel(r.period)) for r in fil.itertuples() if r.period[-2:] in ('06', '12') and wanted(plabel(r.period), annual)}):
         v = close.get((co, per)); o = close.get((co, prev_year_end(per)))
         # 0 = 부채인 계약의 CSM이 없음(장기 계약이 모두 자산 쪽이거나 장기보험이 없음) → 추출은 '당기·전기 표 연결' 방식으로
         pm = prem.get((co, per))

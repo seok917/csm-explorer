@@ -186,6 +186,7 @@ def summarize(E, mv):
                s1_min_co=x25.s1.idxmin(), s1_max_co=x25.s1.idxmax(),
                rank_corr=round(float(m.s1.corr(m.rr, method='spearman')), 2), n_rank=int(len(m)),
                bt_median={k: round(float(v), 2) for k, v in bt.items()},
+               bt_range={k: [round(float(g.min()), 2), round(float(g.max()), 2)] for k, g in L[L.bt_ratio.notna()].groupby('at').bt_ratio},
                restated_2023=sorted(chg))
     json.dump(out, open(os.path.join(D, 'schedule_summary.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     return out

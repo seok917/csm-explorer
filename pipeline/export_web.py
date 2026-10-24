@@ -44,12 +44,16 @@ if seg.SEG == 'nonlife':
 FACT = {'lapse': '해지율 가정', 'risk': '위험률 가정', 'expense': '사업비 가정', 'other': '기타 가정', 'volume': '물량차이·투자요소 예실차', 'loss_comp': '손실요소'}
 
 def won(x):          # 억 원 → '7조 5,537억 원'
-    s = '−' if x < 0 else ''; x = abs(x)
-    jo, eok = int(x // 10000), x % 10000
-    return f"{s}{jo}조 {eok:,.0f}억 원" if jo else f"{s}{eok:,.0f}억 원"
+    s = '−' if x < 0 else ''; a = abs(x)
+    if a == 0:
+        return '0원'
+    if a < 10:                                    # 10억 원 미만(장기보험이 작은 회사)은 소수 첫째 자리까지 — '0억 원'으로 보이지 않게
+        return f"{s}{a:.1f}억 원"
+    jo, eok = divmod(round(a), 10000)              # 먼저 반올림한 뒤 조·억으로 나눔('1조 10,000억' 방지)
+    return (f"{s}{jo}조 {eok:,}억 원" if eok else f"{s}{jo}조 원") if jo else f"{s}{eok:,}억 원"
 
-mv['offset'] = -mv.adjust / mv.new
-mv['post_share'] = mv.close_post / mv.close
+mv['offset'] = (-mv.adjust / mv.new).where(mv.new > 0)        # 신계약이 0 이하인 해(판매 전·계약이전 해)는 비율 없음
+mv['post_share'] = (mv.close_post / mv.close).where(mv.close > 0)
 mv['adj_post_share'] = mv.adjust_post / mv.adjust
 mv['growth'] = (mv.close - mv.open) / mv.open
 for k in ('offset', 'post_share', 'adj_post_share', 'growth'):   # 기초·신계약·기말이 0인 해(첫 판매 해, 계약이전 해) → 비율 없음
@@ -64,19 +68,24 @@ gone = mv.close <= 0                                             # 계약을 모
 mv.loc[gone, ['release_rate', 'replace']] = np.nan
 mv['rank'] = mv.groupby('year').close.rank(ascending=False, method='min').astype(int)
 mv['n_year'] = mv.groupby('year').company.transform('count')
-med = mv.groupby('year').offset.median()
-med_rr = mv.groupby('year').release_rate.median()
-med_rep = mv.groupby('year')['replace'].median()
+MED_MIN = 100                                    # 업계 중앙값은 CSM 100억 원 이상 회사만(장기보험이 아주 작은 회사의 비율은 몇 억 원 움직임에도 크게 흔들림)
+big = mv[mv.close >= MED_MIN]
+med = big.groupby('year').offset.median()
+med_rr = big.groupby('year').release_rate.median()
+med_rep = big.groupby('year')['replace'].median()
 
 def summary(r):
     y = r.year; s = []; extra = {'%': [], '개수': []}
     d = r.close - r.open
     s.append(f"{y} {r.company}의 CSM은 기초 {won(r.open)}에서 기말 {won(r.close)}으로 {won(abs(d))} {'늘었' if d >= 0 else '줄었'}습니다"
              + (f"(순증률 {r.growth:+.1%})." if pd.notna(r.growth) else "."))
-    s.append(f"신계약으로 {won(r.new)}이 쌓였고, 상각 {won(r.release)}과 이자부리 {won(r.interest)}이 반영됐습니다.")
+    s.append((f"신계약으로 {won(r.new)}이 쌓였고" if r.new >= 0 else f"신계약 효과는 {won(r.new)}이었고")
+             + f", 상각 {won(r.release)}과 이자부리 {won(r.interest)}이 반영됐습니다.")
     if pd.notna(r.transfer):
         s.append(f"계약이전·합병으로 {won(abs(r.transfer))}이 {'넘어왔' if r.transfer > 0 else '넘어갔'}습니다.")
-    if r.adjust < 0:
+    if r.adjust < 0 and pd.isna(r.offset):                          # 신계약이 0 이하인 해(계약이전 해 등): 비율 없이 금액만
+        s.append(f"조정 추정치 변동은 {won(r.adjust)}이었습니다.")
+    elif r.adjust < 0:
         t = f"조정 추정치 변동 {won(r.adjust)}은 신계약 CSM의 {r.offset:.0%}에 해당합니다"
         if pd.notna(r.adj_post_share) and r.adjust_post < 0 and r.adj_post_share <= 1:
             t += f". 이 중 약 {r.adj_post_share:.0%}가 전환 시 수정소급·공정가치법을 적용하지 않은 계약(주로 IFRS17 전환일 이후 인식 계약)에서 나왔습니다"
@@ -198,7 +207,16 @@ data['companies'].sort(key=lambda d: -(d['years'].get('2025') or d['years'].get(
 rules = sorted(set(ck.rule))
 data['fixes'] = fx.to_dict('records')
 # 원문 표 자동 추출 결과 (자동 vs 수작업 판독값)
-if os.path.exists(f'{D}/extract_report.csv'):
+if seg.SEG == 'nonlife':                          # 손보: 수작업 판독값이 없음 → 표 고르기 방식별 건수 + 독립 재계산(원문 표 손계산) 결과
+    src = mv.source.fillna('')
+    hc_p = f'{D}/hand_check.csv'
+    hc = pd.read_csv(hc_p, dtype={'year': str}).fillna('') if os.path.exists(hc_p) else None
+    data['extract'] = dict(kind='nonlife', n=int(len(mv)), auto=int(src.str.contains('보고서 표').sum()),
+                           methods=dict(liab=int(mv.close_liab.notna().sum()) if 'close_liab' in mv else 0,
+                                        band=int(src.str.contains('순액 범위').sum()), chain=int(src.str.contains('당기·전기').sum())),
+                           hand=None if hc is None else dict(n=int(len(hc)), match=int((hc.result == '일치').sum()), fixed=int((hc.result == '수정 후 일치').sum())),
+                           cases=[] if hc is None else hc[hc.result != '일치'][['company', 'year', 'result', 'issue', 'action']].to_dict('records'))
+elif os.path.exists(f'{D}/extract_report.csv'):
     ex = pd.read_csv(f'{D}/extract_report.csv', dtype={'year': str})
     ov = pd.read_csv(f'{D}/overrides.csv', dtype={'year': str})
     man = pd.read_csv(f'{D}/movement_manual.csv', dtype={'year': str}).set_index(['company', 'year'])
@@ -220,7 +238,7 @@ if os.path.exists(f'{D}/extract_report.csv'):
                            corrected=sum(c['verdict'] == '자동값 채택' for c in cases), overridden=int(len(ov)),
                            cases=sorted(cases, key=lambda c: c['verdict'] != '자동값 채택'))
 if SEN is not None:                                  # 충격별 업계 중앙값(기준일별, 그 시점 보고서 값)
-    L = SEN[SEN.vintage == '당시']
+    L = SEN[(SEN.vintage == '당시') & (SEN.base >= MED_MIN)]       # 업계 중앙값은 기준 CSM 100억 원 이상 회사만
     data['sens_median'] = {a: {k: (None if g['p_' + k].isna().all() else round(float(g['p_' + k].median()), 4)) for k in SENS_K if 'p_' + k in g}
                            | {'n': int(len(g))} for a, g in L.groupby('asof')}
 if os.path.exists(f'{D}/schedule_summary.json'):
