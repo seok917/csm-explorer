@@ -1,0 +1,48 @@
+# 손보 파이프라인 (수동 실행): 생보와 같은 코드를 CSM_SEGMENT=nonlife로 돌려 segments/nonlife/에 저장
+name: 손보 수집
+on:
+  workflow_dispatch:
+    inputs:
+      step:
+        description: 'discover | collect | extra | fisis | all'
+        default: 'discover'
+permissions:
+  contents: write
+concurrency:
+  group: csm-write
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CSM_SEGMENT: nonlife
+      DART_API_KEY: ${{ secrets.DART_API_KEY || secrets.DART_KEY }}
+      FISIS_API_KEY: ${{ secrets.FISIS_API_KEY || secrets.FISIS_KEY }}
+      STEP: ${{ inputs.step }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: 실행
+        timeout-minutes: 75
+        continue-on-error: true            # 중간 저장분은 커밋
+        run: |
+          case "$STEP" in
+            discover) python pipeline/discover_nonlife.py ;;
+            collect)  python pipeline/collect_dart.py --backfill ;;
+            extra)    python pipeline/collect_extra.py ;;
+            fisis)    python pipeline/collect_fisis.py ;;
+            all)      python pipeline/collect_dart.py --backfill; python pipeline/collect_extra.py; python pipeline/collect_fisis.py ;;
+          esac
+      - name: 결과 커밋
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add segments/
+          if git diff --cached --quiet; then echo "변경 없음"; exit 0; fi
+          git commit -m "손보 수집: $STEP (GitHub Actions)"
+          git pull --rebase
+          git push
