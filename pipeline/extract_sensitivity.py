@@ -20,6 +20,7 @@ from extract_schedule import num, UNITS
 import seg
 B = seg.BASE
 D = os.path.join(B, 'data')
+NONLIFE = seg.SEG == 'nonlife'
 SHOCKS = [('mort', '사망률 상승'), ('morb', '장해·질병(정액) 상승'), ('indem', '실손 상승'),
           ('lapse_up', '해지율 상승'), ('lapse_dn', '해지율 하락'), ('exp', '사업비 상승')]
 SIZE = re.compile(r'(\d+(?:\.\d+)?)\s*(%p|%)\s*(증가|감소|상승|하락)?')
@@ -31,14 +32,16 @@ def shock_of(label, cur):
     kind = cur[0] if cur else None
     if '사망' in t:
         kind = 'mort'
+    elif re.search(r'재물|대재해', t):
+        kind = 'skip'                                     # 손보 '장기재물기타 위험률' — 위험률이라는 말 때문에 장해·질병으로 잡히면 안 됨
     elif '실손' in t and '정액' not in t:
         kind = 'indem'
     elif re.search(r'장해|질병|위험률|이환', t):
         kind = 'morb'
     elif '해지' in t:
         kind = 'lapse'
-    elif '인플레' in t and '수준' not in t:
-        kind = 'infl'
+    elif '인플레' in t and '수준' not in t and not ('사업비' in t and '및' in t):
+        kind = 'infl'                                     # '사업비율 및 인플레이션율'(흥국)은 합친 사업비 충격 → 아래 사업비로
     elif '사업비' in t:
         kind = 'exp'
     elif re.search(r'재물|할인|금리|대재해|기타', t):
@@ -81,6 +84,19 @@ def parse(g, closes):
         base_row = next((n for lb, n in rows if '기준' in lb and not re.search(r'사망|해지|사업비|장해', lb) and len(n) >= nb), None)
         cur, acc, seg_base, cur_size, comb = None, {}, {}, None, set()
         L0 = max((len(n) for lb, n in rows if n and re.search(r'사망|해지|장해|사업비|유배당|무배당|변액|소\s*계|합\s*계', lb)), default=0)
+        merged = set()          # 숫자 없는 '실손'·'인플레이션' 행이 앞 행(정액·사업비 수준)과 병합된 표(삼성화재): 다음 숫자 행이 다른 충격이면 합친 충격
+        SH = r'사망|해지|사업비|장해|질병|실손|재물|인플레|위험률'
+        for i, (lb, n) in enumerate(rows):
+            if not NONLIFE or n or not re.search(SH, lb):   # 손보 장기보험은 실손이 항상 있어 숫자 없는 실손 행 = 병합(생보는 실손이 없어 빈 행일 수 있음)
+                continue
+            kd = shock_of(lb, None)[0]
+            prev = next((shock_of(l2, None)[0] for l2, n2 in reversed(rows[:i]) if n2), None)
+            nxt = next((l2 for l2, n2 in rows[i + 1:] if n2), None)
+            if nxt is None or re.search(SH, nxt):
+                if kd == 'indem' and prev == 'morb':
+                    merged.add('morb')
+                elif kd == 'infl' and prev == 'exp':
+                    merged.add('exp')
         for lb, n in rows:
             if base_row is not None and n is base_row:
                 continue
@@ -135,12 +151,12 @@ def parse(g, closes):
         if sum(1 for v in shocks.values() if v[0] == 0) >= 2:
             continue                                           # 변화가 0인 충격이 여럿이면 열을 잘못 읽은 것
         if closes is None:                                     # 포트폴리오별로 나뉜 표를 합치기 위한 원자료
-            res.append(dict(nb=nb, base=b, units=units, shocks=shocks, comb=comb)); continue
+            res.append(dict(nb=nb, base=b, units=units, shocks=shocks, comb=comb | merged)); continue
         cand = [(abs(b * UNITS[u] / c - 1), u, w, b * UNITS[u] / c) for u in units for w, c in closes.items() if c]
         cand = [c for c in cand if c[0] <= 0.08]
         if cand:                                               # 한 표는 기말 CSM에 가장 가까운 한 시점에만 대응
             _, u, w, r = min(cand)
-            res.append(dict(nb=nb, base=b, unit=u, asof=w, ratio=r, shocks=shocks, comb=comb))
+            res.append(dict(nb=nb, base=b, unit=u, asof=w, ratio=r, shocks=shocks, comb=comb | merged))
     return res
 
 

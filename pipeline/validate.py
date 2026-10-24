@@ -39,7 +39,7 @@ for _, r in mv.iterrows():
     elif len(f) and pd.notna(f.fisis_close.iloc[0]) and (f.fisis_close.iloc[0] != 0 or has_liab):
         v = liab if has_liab else r.close
         d = v - f.fisis_close.iloc[0]
-        what = f'DART 부채인 계약 기말 {v:,.0f}억(순액 {r.close:,.0f}억)' if has_liab else f'DART 기말 {v:,.0f}억'
+        what = f'DART 부채인 계약 기말 {v:,.0f}억(순액 {r.close:,.0f}억)' if has_liab and abs(liab - r.close) > 0.05 else f'DART 기말 {v:,.0f}억'
         add(co, y, 'R2 금감원 잔액 대조', '통과' if abs(d) <= TOL(v) else '불일치',
             f'{what} vs FISIS {f.fisis_close.iloc[0]:,.0f}억 (차이 {d:,.1f}억)')
     elif len(f) and f.fisis_close.iloc[0] == 0:
@@ -50,7 +50,7 @@ for _, r in mv.iterrows():
     prev = mv[(mv.company == co) & (mv.year == prev_year_end(y))]   # 반기·분기도 기초 = 전년 연말
     if len(prev):
         d = r.open - prev.close.iloc[0]
-        add(co, y, 'R3 기초=전기 기말', '통과' if abs(d) <= TOL(r.open) else '불일치',
+        add(co, y, 'R3 기초=전기 기말', '통과' if abs(d) <= max(1.0, abs(r.open) * 0.0001) else '불일치',   # 1억 원 또는 0.01% — 0.1%면 큰 회사의 수십억 원 차이(재작성·표 누락)를 놓침
             f'기초 {r.open:,.0f}억 vs 전기 기말 {prev.close.iloc[0]:,.0f}억 (차이 {d:,.1f}억)')
     else:
         add(co, y, 'R3 기초=전기 기말', '자료없음', '전기 자료 없음')

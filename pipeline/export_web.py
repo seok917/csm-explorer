@@ -177,7 +177,11 @@ for co, g in mv.groupby('company'):
         if not g['ok']: print('[가드레일 경고]', co, r.year, g['mismatches'])
         a = AI.get(f'{co}|{r.year}')
         if a and a['status'] in ('ok', 'fixed'):                    # 숫자 대조를 통과한 AI 설명만 화면에 표시
-            rows[r.year]['ai'] = dict(text=a['text'], guard=a['guard'], status=a['status'], model=a['model'])
+            now = verify(a['text'], facts_from(rows[r.year]))          # 지금 원표와 다시 대조 — 원표가 고쳐진 뒤 AI가 다시 쓰기 전의 옛 숫자 설명은 숨김
+            if now['ok']:
+                rows[r.year]['ai'] = dict(text=a['text'], guard=a['guard'], status=a['status'], model=a['model'])
+            else:
+                print('[AI 설명 보류: 원표와 숫자 불일치 → 다음 AI 실행 때 다시 생성]', co, r.year, now['mismatches'][:3])
     e = ae[ae.company == co].sort_values('year')
     l = lr[(lr.company == co) & lr.cat.isin(['합계', '건강'])].sort_values('year')
     c = ck[ck.company == co]

@@ -463,6 +463,55 @@ def test_nonlife_hand_checked_db_2025():
     assert abs(r.open - 122317.6) < 0.1                    # = 2024 기말(순액)
 
 
+def test_nonlife_hand_checked_kb_2025_both_tables():
+    """독립 검토가 찾은 오류의 회귀 테스트: KB손해보험은 순액만, 유배당(표 268)·무배당(표 270)을 나눠 공시 —
+    둘 다 더해야 전환방법별 합계 표(286)와 같음: 기초 8,820,482 · 신계약 1,741,856 · 상각 (853,436) · 기말 9,285,033 백만원"""
+    mv = _nl('movement.csv')
+    if mv is None:
+        return
+    r = mv[(mv.company == 'KB손해보험') & (mv.year == '2025')].iloc[0]
+    assert abs(r.open - 88204.8) < 0.1 and abs(r.new - 17418.6) < 0.1 and abs(r.release + 8534.4) < 0.1 and abs(r.close - 92850.3) < 0.1, r.to_dict()
+    r = mv[(mv.company == 'KB손해보험') & (mv.year == '2026 상반기')].iloc[0]
+    assert abs(r.open - 92850.3) < 0.1 and abs(r.close - 107216.4) < 0.1, r.to_dict()
+
+
+def test_nonlife_continuity_strict():
+    """손보 기초 = 전기 기말: 1억 원 또는 0.01% 안 — 넘으면 원문을 확인한 재작성(검토 기록)뿐이어야 함"""
+    import sys as _s
+    from periods import prev_year_end
+    mv = _nl('movement.csv')
+    if mv is None:
+        return
+    close = {(r.company, r.year): r.close for r in mv.itertuples()}
+    gaps = [(r.company, r.year, round(r.open - close[(r.company, prev_year_end(r.year))], 1)) for r in mv.itertuples()
+            if (r.company, prev_year_end(r.year)) in close and abs(r.open - close[(r.company, prev_year_end(r.year))]) > max(1.0, abs(r.open) * 0.0001)]
+    assert gaps == [('롯데손해보험', '2024', -105.4)], gaps        # 2024 보고서의 2023년 말 재작성(review_notes.csv)
+
+
+def test_nonlife_sensitivity_hand_checked_heungkuk_2025():
+    """흥국화재 2025 표 1360(백만원): 장해·질병(정액) = 유배당 −10 + 무배당 −419,172 (장기재물기타 −13,399는 제외),
+    사업비율 및 인플레이션율(합친 충격) = −173 − 99,487"""
+    se = _nl('sensitivity.csv')
+    if se is None:
+        return
+    r = se[(se.company == '흥국화재') & (se['asof'] == '2025.12') & (se.report == '2025.12')].iloc[0]
+    assert abs(r.d_morb + 4191.8) < 0.1 and abs(r.d_exp + 996.6) < 0.1 and 'exp' in str(r.combined), r.to_dict()
+    r = se[(se.company == '삼성화재') & (se['asof'] == '2025.12')].iloc[0]
+    assert set(str(r.combined).split(';')) == {'exp', 'morb'}, r.combined     # 병합 셀로 합친 충격
+
+
+def test_shown_ai_text_matches_current_numbers():
+    """원표가 고쳐진 뒤 AI가 다시 쓰기 전까지는 옛 숫자로 쓴 AI 설명을 화면에 내지 않음(생보·손보)"""
+    for path in (os.path.join(D, 'web.json'), os.path.join(ND, 'web.json')):
+        if not os.path.exists(path):
+            continue
+        for c in json.load(open(path, encoding='utf-8'))['companies']:
+            for y, r in c['years'].items():
+                if r.get('ai'):
+                    g = verify(r['ai']['text'], facts_from(r))
+                    assert g['ok'], (c['name'], y, g['mismatches'])
+
+
 def test_nonlife_contract_transfer():
     """엠지손해보험 2025: 계약이전 행으로 CSM 전액이 넘어가 기말 0 — 화면은 '계약이전' 막대로, 비율 지표는 비움"""
     mv = _nl('movement.csv')

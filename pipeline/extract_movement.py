@@ -137,6 +137,10 @@ def cols_csm_only(R):
 
 def movement(R):
     """표 1개에서 CSM 변동 항목을 읽음. CSM 표가 아니면 None"""
+    if seg.SEG == 'nonlife':               # 손보: 한 표에 '보험계약' 다음 '출재보험계약' 구간이 이어지는 표(현대해상 전환방법별 CSM 표) → 출재 구간 앞에서 자름
+        cut = next((i for i, (l, m) in enumerate(R) if i > 2 and not m and re.match(r'(출재|보유\s?재보험|재보험)', l.strip())), None)
+        if cut:
+            R = R[:cut]
     text = ' '.join(l for l, _ in R)
     if '보험계약마진' not in text or '재보험' in text[:300]:
         return None
@@ -319,13 +323,16 @@ def unanchored(C, prem=None):
                 transfer=_tsum([a], sc), other=_tsum([a], sc, 'other'))
 
 
-def band(C, t_open, t_close):
+def band(C, t_open, t_close, prev=None):
     """손보 보조 기준: 부채·자산을 나누지 않고 순액만 공시한 표는 금감원 값(부채인 계약만)과 정확히 맞을 수 없음.
-    순액 CSM ≥ 부채인 계약의 CSM(자산인 계약의 CSM이 더해짐)이므로, 기초·기말이 모두 금감원 값 이상 +15% 이내인 조합 중
-    초과폭이 가장 작은 것(같으면 표 수가 적은 것)을 고름. 기준 값이 하나도 없으면 고르지 않음"""
+    순액 CSM ≥ 부채인 계약의 CSM(자산인 계약의 CSM이 더해짐)이므로, 기초·기말이 모두 금감원 값 이상 +15% 이내인 조합만 후보.
+    전기 기말(이미 고른 순액, prev)이 있으면 기초가 그 값과 정확히 같은 조합만 남김 — 유배당·무배당 표가 나뉜 회사에서
+    한쪽 표만 골라도 범위 안에 들 수 있기 때문(독립 검토가 찾은 KB 2025 무배당 표만 선택한 오류).
+    그중 초과폭이 가장 작은 것(같으면 표 수가 적은 것). 기준 값이 하나도 없으면 고르지 않음"""
     if t_open is None and t_close is None:
         return None
     ok = lambda v, t: t is None or (t - max(300, abs(t) * 0.003) <= v <= t * (1 + BAND))
+    cont = lambda o: prev is None or abs(o - prev) <= max(50, abs(prev) * 0.0005)
     best = None
     for sc in SCALES:
         for k in range(1, min(4, len(C)) + 1):
@@ -333,7 +340,7 @@ def band(C, t_open, t_close):
                 nets_o = [x[1]['open_net'] or x[1]['open'][0] for x in S]
                 nets_c = [x[1]['close_net'] or x[1]['close'][0] for x in S]
                 o = sum(v for v, _ in nets_o) * sc; c = sum(v for v, _ in nets_c) * sc
-                if not (ok(o, t_open) and ok(c, t_close)):
+                if not (ok(o, t_open) and ok(c, t_close) and cont(o)):
                     continue
                 ex = sum((v - t) / t for v, t in ((o, t_open), (c, t_close)) if t)
                 if best and (best[0], best[1]) <= (round(ex, 4), k):
@@ -412,7 +419,7 @@ def snapshot():
     print('스냅숏 저장:', SNAP, f'{os.path.getsize(SNAP) / 1e6:.1f}MB')
 
 
-def extract_one(R, cache, co, y, t_open, t_close, prem=None):
+def extract_one(R, cache, co, y, t_open, t_close, prem=None, prev=None):
     """회사·기간 하나: 해당 보고서의 후보 표 중 기준 잔액(백만원)에 맞는 조합 → 결과 행"""
     order = [report_period(y)] if len(y) > 4 else [f'{y}.12', f'{int(y) + 1}.12']   # 연간은 당해 보고서, 없으면 다음 해 보고서의 전기 비교
     for rep in order:
@@ -428,8 +435,9 @@ def extract_one(R, cache, co, y, t_open, t_close, prem=None):
             res = choose(cache[co][rep], None, t_close, band_ok=False)   # 기초가 재작성된 보고서: 기말만 금감원 값에 맞춤(R3가 재작성을 표시)
             if res:
                 res['how'] += '·기말만 대조'
+                res['open_liab'] = None                    # 기초는 금감원 값과 맞추지 않았음(표의 순액 기초를 씀)
             else:
-                res = band(cache[co][rep], t_open, t_close)
+                res = band(cache[co][rep], t_open, t_close, prev)
         if res:
             if res['close_post'] is None:
                 res = post_split(cache[co][rep], res)
@@ -451,9 +459,15 @@ def main():
     cache = {}
     m100 = lambda v: None if v is None or pd.isna(v) else v * 100                     # 억 → 백만원
     # 1) 금감원 잔액이 있는 회사·기간: 기초·기말을 금감원 값에 맞춰 표 선택
-    rows = [extract_one(R, cache, r.company, r.year, m100(r.fisis_open), m100(r.fisis_close), getattr(r, 'prem_long', None))
-            if pd.notna(r.fisis_open) or pd.notna(r.fisis_close) else dict(company=r.company, year=r.year, report=None)   # 기준 잔액이 하나도 없으면 고르지 않음
-            for r in fz.itertuples()]
+    rows, got = [], {}                     # got: 이미 고른 기말(백만원) — 손보 순액 범위 대조에서 다음 기간 기초와 이어지는지 확인
+    for r in fz.itertuples():
+        if pd.isna(r.fisis_open) and pd.isna(r.fisis_close):           # 기준 잔액이 하나도 없으면 고르지 않음
+            rows.append(dict(company=r.company, year=r.year, report=None)); continue
+        row = extract_one(R, cache, r.company, r.year, m100(r.fisis_open), m100(r.fisis_close), getattr(r, 'prem_long', None),
+                          prev=got.get((r.company, prev_year_end(r.year))))
+        if row.get('close') is not None:
+            got[(r.company, r.year)] = row['close'] * 100
+        rows.append(row)
     auto = pd.DataFrame(rows)
     rep = compare(auto)
     final = assemble(auto)
