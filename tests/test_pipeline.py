@@ -100,7 +100,7 @@ def _csv(name):
 def test_extraction_coverage():          # 72건 중 자동 추출 성공·수작업 판독값과 일치 건수
     rep = _csv('extract_report.csv')
     assert (rep.status != '자동추출 실패').sum() >= 71
-    assert rep.status.isin(['일치', '일치(추가값)']).sum() >= 66, rep.status.value_counts().to_dict()
+    assert rep.status.isin(['일치', '일치(추가값)']).sum() >= 66, rep.status.value_counts().to_dict()   # 일치 36 + 일치(추가값) 30(KB라이프 전환방법별 값 추가)
 
 
 def test_extraction_differences_are_resolved():
@@ -543,6 +543,60 @@ def test_won_format():
     exec(code, ns)
     won = ns['won']
     assert won(19999.7) == '2조 원' and won(12345.4) == '1조 2,345억 원' and won(-8.64) == '−8.6억 원' and won(0) == '0원'
+
+
+def test_nonlife_periods_match_life_rule():
+    """손보 화면 기간 = 생보와 같은 규칙(연간 전부 + 마지막 연간 뒤의 반기만)"""
+    from periods import wanted
+    web = json.load(open(os.path.join(ND, 'web.json'), encoding='utf-8'))
+    ann = {y for y in web['years'] if len(y) == 4}
+    assert all(len(y) == 4 or wanted(y, ann) for y in web['years']), web['years']
+    assert web['years'] == ['2023', '2024', '2025', '2026 상반기'], web['years']
+
+
+def test_nonlife_hand_check_covers_every_row():
+    """독립 재계산 기록(hand_check.csv)이 화면의 모든 회사·기간을 덮고, 일치 또는 수정 후 일치뿐"""
+    import pandas as pd
+    hc, mv = _nl('hand_check.csv'), _nl('movement.csv')
+    if hc is None:
+        return
+    assert set(zip(hc.company, hc.year)) == set(zip(mv.company, mv.year))
+    assert set(hc.result) <= {'일치', '수정 후 일치'}, hc.result.value_counts().to_dict()
+
+
+def test_nonlife_audit_regressions():
+    """2차 독립 재계산에서 찾은 값(원문 표 손계산)을 고정"""
+    mv, se, sc = _nl('movement.csv'), _nl('sensitivity.csv'), _nl('schedule.csv')
+    if mv is None:
+        return
+    g = lambda d, co, **kw: d[(d.company == co) & pd_and(d, kw)].iloc[0]
+    r = g(mv, '하나손해보험', year='2025')                    # 그 밖 계약: 표 298 그 밖 + 표 296(그 밖 열 '-')
+    assert abs(r.close_post - 2014.8) < 0.1 and abs(r.adjust_post + 450.2) < 0.1, r.to_dict()
+    r = g(mv, '현대해상', year='2023')
+    assert abs(r.close_post - 30236.4) < 0.1, r.to_dict()
+    r = g(mv, 'KB손해보험', year='2026 상반기')
+    assert abs(r.close_post - 75225.8) < 0.1, r.to_dict()
+    r = g(se, 'DB손해보험', asof='2025.12', report='2025.12')   # XBRL형 표: 무배당+유배당, 재보험 경감 전
+    assert abs(r.d_mort + 1084.9) < 0.1 and abs(r.d_morb + 13174.8) < 0.1 and abs(r.d_lapse_up + 5685.0) < 0.1 and abs(r.d_lapse_dn - 6274.4) < 0.1, r.to_dict()
+    r = g(se, 'KB손해보험', asof='2025.12', report='2025.12')   # 유·무배당 칸 합산
+    assert abs(r.d_morb + 9866.4) < 0.1 and abs(r.base - 92850.3) < 0.1, r.to_dict()
+    r = g(se, '한화손해보험', asof='2025.12', report='2025.12')
+    assert abs(r.d_morb + 4995.0) < 0.1 and abs(r.d_indem + 701.7) < 0.1 and abs(r.d_lapse_dn - 2903.4) < 0.1, r.to_dict()
+    r = g(se, '하나손해보험', asof='2025.12', report='2025.12')
+    assert set(str(r.combined).split(';')) == {'exp', 'morb'} and r.d_indem != r.d_indem, r.to_dict()   # 실손 0 → 공시 안 함(NaN)
+    r = g(sc, '한화손해보험', asof='2025.12', report='2025.12')  # 구간이 행으로 내려간 포트폴리오별 표의 '모든 포트폴리오' 묶음
+    assert abs(r['1년 이내'] - 2531.3) < 0.1 and abs(r['10년 초과'] - 25147.2) < 0.1
+    r = g(sc, '롯데손해보험', asof='2025.12', report='2025.12')  # 발행·재보험이 나란한 표의 발행 쪽
+    assert abs(r['1년 이내'] - 2250.1) < 0.1 and abs(r['10년 초과'] - 9965.6) < 0.1
+    r = g(sc, 'DB손해보험', asof='2023.12', report='2023.12')
+    assert abs(r['1년 이내'] - 10730.6) < 0.1 and abs(r['10년 초과'] - 53768.4) < 0.1
+
+
+def pd_and(d, kw):
+    m = True
+    for k, v in kw.items():
+        m = m & (d[k] == v)
+    return m
 
 
 def test_nonlife_contract_transfer():

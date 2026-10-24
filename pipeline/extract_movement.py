@@ -128,26 +128,44 @@ def cols_csm_only(R):
     if not re.search('소급|공정가치', head) or re.search('현재가치|위험조정', head):
         return None
     for l, n in R:
+        if '기말' in l and len(n) == 6 and seg.SEG == 'nonlife' and re.search(r'발행한 보험계약.*보유\s?재보험', head):
+            return 6, [0, 1, 2], [2], 'csm-only'          # [발행 3열 | 보유 재보험 3열] — 발행한 계약 쪽만
         if '기말' in l and len(n) in (3, 4) and abs(sum(n[:3])) > 0:
             if len(n) == 4 and abs(sum(n[:3]) - n[3]) > 3:
                 return None
+            if (len(n) == 3 and '수정소급' not in head and re.search(r'합\s*계', head)
+                    and abs(n[0] + n[1] - n[2]) <= 3):      # [공정가치, 그 밖, 합계] — 수정소급 열이 없는 회사(KB손보)
+                return 3, [0, 1], [1], 'csm-only'
             return len(n), [0, 1, 2], [2], 'csm-only'
     return None
 
 
 def movement(R):
     """표 1개에서 CSM 변동 항목을 읽음. CSM 표가 아니면 None"""
+    side = False
     if seg.SEG == 'nonlife':               # 손보: 한 표에 '보험계약' 다음 '출재보험계약' 구간이 이어지는 표(현대해상 전환방법별 CSM 표) → 출재 구간 앞에서 자름
         cut = next((i for i, (l, m) in enumerate(R) if i > 2 and not m and re.match(r'(출재|보유\s?재보험|재보험)', l.strip())), None)
         if cut:
             R = R[:cut]
+        # 소제목 없이 같은 항목이 다시 시작되는 둘째 구간(삼성화재 전환방법별 표의 재보험 구간) 앞에서 자름
+        opens = [i for i, (l, m) in enumerate(R) if m and re.match(r'(기초|전기말)\s?보험계약마진', l.strip())]
+        if len(opens) >= 2 and opens[1] > opens[0] + 3:
+            R = R[:opens[1]]
+            while R and not R[-1][1]:                   # 둘째 구간의 소제목(예: '순재보험계약자산')도 함께 뺌
+                R = R[:-1]
+        h = head_text(R)                   # XBRL형 '발행한 보험계약 | 보유 재보험계약'을 한 행에 나란히 둔 표 → 발행한 계약 쪽만
+        side = bool(re.search(r'발행한 보험계약.*보유\s?재보험', h))
     text = ' '.join(l for l, _ in R)
-    if '보험계약마진' not in text or '재보험' in text[:300]:
+    if '보험계약마진' not in text or ('재보험' in text[:300] and not side):
         return None
     lay = cols_by_release(R)
     if lay is None or (lay[2] is None and re.search('소급|공정가치', head_text(R))):
         # 상각 행에서 0인 전환방법 열이 빠지면 CSM 일부와 전환이후 열을 놓침 → 머리글 구조로 다시 판단
         lay = cols_by_header(R) or lay or cols_csm_only(R)
+    elif lay[3] == 'release' and re.search('소급|공정가치', head_text(R)) and seg.SEG == 'nonlife':
+        # 손보: 상각 행에 '그 밖의 계약' 금액이 없으면(하나손보 유배당연금저축 표) 상각 행으로 정한 '그 밖' 열이 공정가치 열이 됨
+        # → 머리글 구조([현재가치, 위험조정, 수정소급, 공정가치, 그 밖(, 소계), 합계])가 확인되면 그 열 위치를 씀
+        lay = cols_by_header(R) or lay
     if not lay:
         return None
     L, cols, post, how = lay
@@ -172,6 +190,9 @@ def movement(R):
                     if ('순' in lb or re.search(r'부채\s?\(자산\)|자산\s?및\s?부채|부채\s?및\s?자산', lb)) and not re.search('자산인|부채인', lb)), None)
         return list(dict.fromkeys((v, p) for _, v, p, _ in sorted(vals, key=lambda x: x[0]))), net
     (op, op_net), (cl, cl_net) = pick('기초'), pick('기말')
+    if not op and seg.SEG == 'nonlife' and how in ('csm-only', 'release'):   # '전기말 보험계약마진'으로 기초를 적은 전환방법별 표(현대해상)
+        (op, op_net) = pick('전기말')
+        cl = [(v, p) for v, p in cl if (v, p) not in op]
     if not op or not cl:
         return None
     first = lambda pat, bad=None, pos=False, nz=False: next((m for l, m in R if re.search(pat, l) and len(m) == L
@@ -266,15 +287,20 @@ def choose(C, t_open, t_close, band_ok=True):
                             if t_close is not None and abs(c - t_close) > lim(t_close):
                                 continue
                             err = (abs(o - t_open) if t_open is not None else 0) + (abs(c - t_close) if t_close is not None else 0)
-                            if best and (best[0], best[1]) <= (round(err), k):
+                            # 손보: 반올림 차이(10백만원=0.1억 미만)는 같은 것으로 보고, 같은 잔액의 표 중 변동 항목이 다 있는 표 우선
+                            # (삼성화재: 변동표 1067과 기말이 1백만원 다른 전환방법별 CSM 표 1087 — 신계약·조정 행이 없음)
+                            miss = sum(_sum(S, f, 1) is None for f in ITEMS) if seg.SEG == 'nonlife' else 0
+                            e_key = round(err / 10) if seg.SEG == 'nonlife' else round(err)
+                            if best and (best[0], best[1], best[4]) <= (e_key, k, miss):
                                 continue
                             posts = [v for _, v in vc]
-                            best = (round(err), k, dict(
+                            best = (e_key, k, dict(
                                 err=err, tables='+'.join(str(x[0]) for x in S), how='+'.join(sorted({x[1]['how'] for x in S})),
                                 scale=sc, tol=tol, open=o, close=c,
                                 new=_sum(S, 'new', sc), release=_sum(S, 'release', sc), adjust=_sum(S, 'adjust', sc),
                                 interest=_sum(S, 'interest', sc), adjust_post=_sum(S, 'adjust_post', sc),
-                                transfer=_tsum(S, sc), other=_tsum(S, sc, 'other'), close_post=sum(posts) * sc if None not in posts else None), S)
+                                transfer=_tsum(S, sc), other=_tsum(S, sc, 'other'), close_post=sum(posts) * sc if None not in posts else None,
+                                t_open_used=t_open is not None), S, miss)
         if best:
             return to_net(best[2], best[3]) if seg.SEG == 'nonlife' else best[2]
     return None
@@ -284,7 +310,7 @@ def to_net(res, S):
     """손보: 금감원 통계(SI152)의 CSM은 '부채인 보험계약'의 잔여보장요소 CSM만이라, 표를 고를 때는 부채 행으로 맞추고
     화면 값은 같은 표의 순액(부채 − 자산인 계약) 행으로 바꿈 — 변동 항목(신계약·상각 등)은 순액 기준이라 이렇게 해야 항등식이 맞음.
     부채 행으로 맞춘 값은 open_liab·close_liab로 남겨 R2(금감원 잔액 대조)에 씀"""
-    res['open_liab'], res['close_liab'] = res['open'], res['close']
+    res['open_liab'], res['close_liab'] = (res['open'] if res.get('t_open_used') else None), res['close']
     if all(x[1]['open_net'] is not None and x[1]['close_net'] is not None for x in S):
         sc = res['scale']
         res['open'] = sum(x[1]['open_net'][0] for x in S) * sc

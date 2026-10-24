@@ -597,6 +597,7 @@ function renderSens(c){
 /* ---------- 검증 현황 ---------- */
 const RULES=['R1 변동표 항등식','R2 금감원 잔액 대조','R3 기초=전기 기말','R4 포트폴리오 합계 대조','R5 급변 탐지(위험보험료)','R5 급변 탐지(상쇄율)','R6 기준 변경 문구'];
 const RSHORT=['R1 항등식','R2 금감원','R3 연속성','R4 합계','R5 위험보험료','R5 상쇄율','R6 기준 변경'];
+if((D.meta.rules||[]).length){ for(let i=RULES.length-1;i>=0;i--) if(!D.meta.rules.includes(RULES[i])){ RULES.splice(i,1); RSHORT.splice(i,1); } }   // 그 업권에서 실행한 규칙만(손보: R4·R6·위험보험료 없음)
 const SYM={'통과':'✓','주의':'!','불일치':'×','자료없음':'–'};
 const all=C.flatMap(c=>c.checks.map(k=>Object.assign({co:c.name},k)));
 const nFlag=all.filter(k=>k.status==='불일치'||k.status==='주의').length;
