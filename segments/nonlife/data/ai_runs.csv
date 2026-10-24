@@ -1,0 +1,2 @@
+date,model,prompt,called,ok,fixed,rejected,first_num_err,first_style_err
+2026-10-24,claude-haiku-4-5-20251001,v2,71,63,6,2,5,4
