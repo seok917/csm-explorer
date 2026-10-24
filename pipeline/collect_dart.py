@@ -91,9 +91,28 @@ def pick(rows, pattern, exclude=None):
         if not m or m.group(2) not in ('03', '06', '09', '12'):
             continue
         per = m.group(0)
-        if per not in best or (r['rcept_dt'], r['rcept_no']) > (best[per]['rcept_dt'], best[per]['rcept_no']):
-            best[per] = dict(period=per, report_nm=nm, rcept_no=r['rcept_no'], rcept_dt=r['rcept_dt'])
-    return list(best.values())
+        best.setdefault(per, []).append(dict(period=per, report_nm=nm, rcept_no=r['rcept_no'], rcept_dt=r['rcept_dt']))
+    out = []
+    for per, L in best.items():                       # 최신 접수본 + 원문이 없을 때 쓸 이전 접수본(첨부정정 등은 원문 파일이 없음)
+        L = sorted(L, key=lambda d: (d['rcept_dt'], d['rcept_no']), reverse=True)
+        out.append(dict(L[0], alts=L[1:]))
+    return out
+
+
+def fetch_doc(key, f):
+    """보고서 원문(zip 바이트). 최신 접수본에 원문 파일이 없으면(DART 014) 바로 이전 접수본으로 → f를 실제로 받은 접수본으로 바꿈"""
+    for cand in [f] + f.get('alts', []):
+        b = get('document.xml', {'crtfc_key': key, 'rcept_no': cand['rcept_no']}, binary=True)
+        try:
+            zipfile.ZipFile(io.BytesIO(b))
+        except zipfile.BadZipFile:
+            if b'<status>014</status>' in b[:300]:
+                print(f"    원문 없음(014): {cand['report_nm']} ({cand['rcept_no']}) → 이전 접수본 시도"); continue
+            unzip_or_die(b, 'document')               # 한도 초과 등 다른 오류는 그대로 중단
+        for k in ('report_nm', 'rcept_no', 'rcept_dt'):
+            f[k] = cand[k]
+        return b
+    raise LookupError(f"{f['period']} 보고서 원문을 찾지 못함")
 
 
 def tables_of(zbytes):
@@ -209,7 +228,14 @@ def main():
             pd.concat([old_x, new_x], ignore_index=True).to_csv(X.OUT, index=False, encoding='utf-8', compression='gzip')
     for co, src, f, why in todo:
         print(f"  [{why}] {co} {f['period']} {f['report_nm']} ({f['rcept_no']})")
-        z = get('document.xml', {'crtfc_key': key, 'rcept_no': f['rcept_no']}, binary=True)
+        try:
+            z = fetch_doc(key, f)
+        except LookupError as e:
+            print(f'    {e} → 건너뜀'); continue
+        f.pop('alts', None)
+        prev = last.get((co, f['period']))
+        if why == '정정' and prev is not None and f['rcept_no'] == prev.rcept_no:   # 새 정정본에 원문이 없어 이미 받은 접수본으로 돌아옴
+            print('    이미 받은 접수본과 같아 건너뜀'); continue
         if backfill:                                  # 표 앞 문맥까지 한 번에 펼침(번호 규칙은 tables_of와 같음)
             cc = X.tables_ctx(z)
             cells = [(d, t, r, c, v) for d, t, _, r, c, v in cc]
