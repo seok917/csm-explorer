@@ -408,8 +408,7 @@ const METRICS={close:['기말 CSM',r=>r.close,v=>won(v)],new:['신계약 CSM',r=
   p25:['25회차 유지율',(r,c,y)=>(c.fisis&&c.fisis[y]&&c.fisis[y].p25)||null,v=>v.toFixed(1)+'%']};
 const FV=(c,y,k)=>{ const f=c.fisis&&c.fisis[y]; return f&&f[k]!=null? f[k] : null; };
 const okMulNL=f=>f&&f.multiple!=null&&f.init_m>=30&&f.multiple>=2&&f.multiple<=40;   // 월납 초회보험료가 작으면(30억 미만) 배수가 흔들려 제외
-if(NL) Object.assign(METRICS,{
-  multiple:['신계약 CSM 배수',(r,c,y)=>{const f=c.fisis&&c.fisis[y]; return okMulNL(f)? f.multiple : null;},v=>v.toFixed(1)+'배'],
+if(NL) Object.assign(METRICS,{          // 손보 신계약 CSM 배수는 분모(FISIS 월납 초회)에 회사마다 다른 월납 보험료가 섞여 업계 비교에서 뺌 — 회사 표에서 추이만
   long_share:['장기보험 비중',(r,c,y)=>FV(c,y,'long_share'),v=>pct(v)],
   gmm_ratio:['장기 보험서비스비용률',(r,c,y)=>FV(c,y,'gmm_ratio'),v=>pct(v,1)],
   paa_ratio:['자동차·일반 비용률',(r,c,y)=>FV(c,y,'paa_ratio'),v=>pct(v,1)]});
@@ -537,12 +536,12 @@ function renderCap(c, r){
     h+=line('조정 중 경험 차이 <small style="color:var(--muted)">물량·투자요소 예실차</small>',(x)=>x.split&&x.split.experience!=null?n0(x.split.experience):'–'); }
   const okMul=f=>f&&f.multiple!=null&&f.prot_init>=100&&f.multiple>=5&&f.multiple<=30;   // 보장성 초회보험료가 작거나(분류 차이) 배수가 업계 통상 범위(5~30배)를 벗어나면 표시하지 않음
   const fk=[['kics','지급여력비율(K-ICS) <small style="color:var(--muted)">FISIS</small>',v=>v.toFixed(1)+'%'],['p13','13회차 유지율',v=>v.toFixed(1)+'%'],['p25','25회차 유지율',v=>v.toFixed(1)+'%'],
-    ['multiple', NL? '신계약 CSM 배수 <small style="color:var(--muted)">신계약 CSM ÷ 월납 초회보험료</small>' : '신계약 CSM 배수 <small style="color:var(--muted)">신계약 CSM ÷ 보장성 초회보험료</small>',v=>v.toFixed(1)+'배']];
+    ['multiple', NL? '신계약 CSM 배수(참고) <small style="color:var(--muted)">신계약 CSM ÷ 월납 초회보험료 · 같은 회사 추이만</small>' : '신계약 CSM 배수 <small style="color:var(--muted)">신계약 CSM ÷ 보장성 초회보험료</small>',v=>v.toFixed(1)+'배']];
   const okM = NL? okMulNL : okMul;
   fk.forEach(([k,lab,fm])=>{ if(ys.some(y=>F[y]&&F[y][k]!=null)) h+=line(lab,(x,y)=>{ const f=F[y]; if(!f||f[k]==null) return '–'; if(k==='multiple'&&!okM(f)) return `<span title="${NL?'월납 초회보험료가 작아(30억 원 미만) 배수를 계산하지 않음':'보장성 초회보험료가 작거나 다른 분류(특별계정 등)에 잡혀 배수를 계산하지 않음'}">·</span>`; return fm(f[k]); }); });
   $('capTbl').innerHTML=h+'</tbody></table>';
   const hasF=Object.keys(F).length>0;
-  $('capNote').innerHTML=(hasF? (NL? '<b>신계약 CSM 배수</b>는 장기보험(주로 월납 보장성)을 팔 때 첫 회 보험료 1원당 미래 이익을 얼마나 쌓았는지(신계약 수익성)를 봅니다. 분모는 FISIS 「납입방법별 보험료」의 월납 초회보험료(그해 누계)라, 회사가 IR에서 쓰는 \'보장성 월초\' 배수와 수준은 다를 수 있어 같은 회사의 추이와 회사 간 순서로 보세요. 유지율이 오르면 해지율 가정이 덜 나빠져 CSM 조정에도 유리합니다. '
+  $('capNote').innerHTML=(hasF? (NL? '<b>신계약 CSM 배수(참고)</b>는 장기보험을 팔 때 첫 회 보험료 1원당 미래 이익을 얼마나 쌓았는지(신계약 수익성)를 봅니다. 다만 분모인 FISIS 「납입방법별 보험료」의 월납 초회보험료(그해 누계)는 보장성·저축성을 나누지 않고 회사마다 담긴 월납 보험료의 구성이 달라 회사 간 비교에는 쓰지 말고 같은 회사의 해마다 변화만 보세요. 회사가 IR에서 쓰는 \'보장성 월초\' 배수와도 다릅니다. 유지율이 오르면 해지율 가정이 덜 나빠져 CSM 조정에도 유리합니다. '
      : '<b>신계약 CSM 배수</b>는 보장성 상품을 팔 때 첫 회 보험료 1원당 미래 이익을 얼마나 쌓았는지(신계약 수익성)를 봅니다. 초회보험료에 일시납이 섞이거나 변액종신처럼 특별계정에 잡히면 회사마다 왜곡되므로 같은 회사의 추이로 보세요. 유지율이 오르면 해지율 가정이 덜 나빠져 CSM 조정에도 유리합니다. ') : '')+'상각률이 높을수록 CSM이 빨리 이익으로 풀리고(보장 기간이 짧은 상품 비중이 큼), 대체율이 1배를 넘으면 풀린 이익보다 신계약으로 더 많이 채운 해입니다. 반기 값은 반기 누적이라 연간과 직접 비교하지 않습니다. 조정의 가정 변경·경험 차이는 금액 단위 억 원.';
 }
 
