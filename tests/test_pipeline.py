@@ -100,7 +100,7 @@ def _csv(name):
 def test_extraction_coverage():          # 72건 중 자동 추출 성공·수작업 판독값과 일치 건수
     rep = _csv('extract_report.csv')
     assert (rep.status != '자동추출 실패').sum() >= 71
-    assert rep.status.isin(['일치', '일치(추가값)']).sum() >= 66, rep.status.value_counts().to_dict()
+    assert rep.status.isin(['일치', '일치(추가값)']).sum() >= 66, rep.status.value_counts().to_dict()   # 일치 36 + 일치(추가값) 30(KB라이프 전환방법별 값 추가)
 
 
 def test_extraction_differences_are_resolved():
@@ -426,7 +426,7 @@ def test_nonlife_identity_holds():
     mv = _nl('movement.csv')
     if mv is None:
         return
-    assert len(mv) >= 70 and mv.close.notna().all(), len(mv)
+    assert len(mv) >= 50 and mv.close.notna().all(), len(mv)      # 15개사 × (연간 3 + 최근 반기) — 생보와 같은 기간 구성
     for r in mv.fillna({'transfer': 0, 'other': 0}).itertuples():
         if '잔차' in r.source:
             continue
@@ -449,7 +449,7 @@ def test_nonlife_liability_rows_match_fisis():
             assert r.close >= r.close_liab - 1, (r.company, r.year, r.close, r.close_liab)
         if '순액 범위' in r.source:                      # 순액만 공시한 표: 금감원 값 이상, +15% 이내
             assert r.fisis_close <= r.close + 1 and r.close <= r.fisis_close * 1.15 + 1, (r.company, r.year)
-    assert n >= 45, n
+    assert n >= 38, n
 
 
 def test_nonlife_hand_checked_db_2025():
@@ -510,6 +510,93 @@ def test_shown_ai_text_matches_current_numbers():
                 if r.get('ai'):
                     g = verify(r['ai']['text'], facts_from(r))
                     assert g['ok'], (c['name'], y, g['mismatches'])
+
+
+def test_ratios_and_medians_follow_definitions():
+    """화면 비율·순위·업계 중앙값을 movement.csv에서 다시 계산해 대조(생보·손보).
+    신계약 0 이하 → 상쇄율 없음, 기말 0 이하 → 상각률·대체율 없음, 업계 중앙값은 CSM 100억 원 이상 회사만"""
+    import pandas as pd, statistics as st
+    for base in (D, ND):
+        p = os.path.join(base, 'web.json')
+        if not os.path.exists(p):
+            continue
+        W = json.load(open(p, encoding='utf-8')); C = {c['name']: c for c in W['companies']}
+        mv = pd.read_csv(os.path.join(base, 'movement.csv'), dtype={'year': str})
+        for r in mv.itertuples():
+            y = C[r.company]['years'][r.year]
+            exp_off = None if r.new <= 0 else -r.adjust / r.new
+            exp_rr = None if r.close <= 0 else -r.release / (r.close - r.release)
+            for k, e in (('offset', exp_off), ('release_rate', exp_rr)):
+                assert (y[k] is None) == (e is None) and (e is None or abs(y[k] - e) < 1e-3), (r.company, r.year, k, y[k], e)
+            assert y['rank'] == 1 + int((mv[mv.year == r.year].close > r.close).sum())
+        for yr, g in mv[mv.close >= 100].groupby('year'):
+            off = [-a / n for a, n in zip(g.adjust, g.new) if n > 0]
+            assert abs(W['meta']['offset_median'][yr] - st.median(off)) < 1e-3, (base, yr)
+
+
+def test_won_format():
+    """금액 표기: 반올림 뒤 조·억으로 나눔(1조 10,000억 방지), 10억 원 미만은 소수 첫째 자리"""
+    import importlib.util, types
+    src = open(os.path.join(ROOT, 'pipeline', 'export_web.py'), encoding='utf-8').read()
+    code = src[src.index('def won(x):'):src.index("mv['offset']")]
+    ns = {}
+    exec(code, ns)
+    won = ns['won']
+    assert won(19999.7) == '2조 원' and won(12345.4) == '1조 2,345억 원' and won(-8.64) == '−8.6억 원' and won(0) == '0원'
+
+
+def test_nonlife_periods_match_life_rule():
+    """손보 화면 기간 = 생보와 같은 규칙(연간 전부 + 마지막 연간 뒤의 반기만)"""
+    from periods import wanted
+    web = json.load(open(os.path.join(ND, 'web.json'), encoding='utf-8'))
+    ann = {y for y in web['years'] if len(y) == 4}
+    assert all(len(y) == 4 or wanted(y, ann) for y in web['years']), web['years']
+    assert web['years'] == ['2023', '2024', '2025', '2026 상반기'], web['years']
+
+
+def test_nonlife_hand_check_covers_every_row():
+    """독립 재계산 기록(hand_check.csv)이 화면의 모든 회사·기간을 덮고, 일치 또는 수정 후 일치뿐"""
+    import pandas as pd
+    hc, mv = _nl('hand_check.csv'), _nl('movement.csv')
+    if hc is None:
+        return
+    assert set(zip(hc.company, hc.year)) == set(zip(mv.company, mv.year))
+    assert set(hc.result) <= {'일치', '수정 후 일치'}, hc.result.value_counts().to_dict()
+
+
+def test_nonlife_audit_regressions():
+    """2차 독립 재계산에서 찾은 값(원문 표 손계산)을 고정"""
+    mv, se, sc = _nl('movement.csv'), _nl('sensitivity.csv'), _nl('schedule.csv')
+    if mv is None:
+        return
+    g = lambda d, co, **kw: d[(d.company == co) & pd_and(d, kw)].iloc[0]
+    r = g(mv, '하나손해보험', year='2025')                    # 그 밖 계약: 표 298 그 밖 + 표 296(그 밖 열 '-')
+    assert abs(r.close_post - 2014.8) < 0.1 and abs(r.adjust_post + 450.2) < 0.1, r.to_dict()
+    r = g(mv, '현대해상', year='2023')
+    assert abs(r.close_post - 30236.4) < 0.1, r.to_dict()
+    r = g(mv, 'KB손해보험', year='2026 상반기')
+    assert abs(r.close_post - 75225.8) < 0.1, r.to_dict()
+    r = g(se, 'DB손해보험', asof='2025.12', report='2025.12')   # XBRL형 표: 무배당+유배당, 재보험 경감 전
+    assert abs(r.d_mort + 1084.9) < 0.1 and abs(r.d_morb + 13174.8) < 0.1 and abs(r.d_lapse_up + 5685.0) < 0.1 and abs(r.d_lapse_dn - 6274.4) < 0.1, r.to_dict()
+    r = g(se, 'KB손해보험', asof='2025.12', report='2025.12')   # 유·무배당 칸 합산
+    assert abs(r.d_morb + 9866.4) < 0.1 and abs(r.base - 92850.3) < 0.1, r.to_dict()
+    r = g(se, '한화손해보험', asof='2025.12', report='2025.12')
+    assert abs(r.d_morb + 4995.0) < 0.1 and abs(r.d_indem + 701.7) < 0.1 and abs(r.d_lapse_dn - 2903.4) < 0.1, r.to_dict()
+    r = g(se, '하나손해보험', asof='2025.12', report='2025.12')
+    assert set(str(r.combined).split(';')) == {'exp', 'morb'} and r.d_indem != r.d_indem, r.to_dict()   # 실손 0 → 공시 안 함(NaN)
+    r = g(sc, '한화손해보험', asof='2025.12', report='2025.12')  # 구간이 행으로 내려간 포트폴리오별 표의 '모든 포트폴리오' 묶음
+    assert abs(r['1년 이내'] - 2531.3) < 0.1 and abs(r['10년 초과'] - 25147.2) < 0.1
+    r = g(sc, '롯데손해보험', asof='2025.12', report='2025.12')  # 발행·재보험이 나란한 표의 발행 쪽
+    assert abs(r['1년 이내'] - 2250.1) < 0.1 and abs(r['10년 초과'] - 9965.6) < 0.1
+    r = g(sc, 'DB손해보험', asof='2023.12', report='2023.12')
+    assert abs(r['1년 이내'] - 10730.6) < 0.1 and abs(r['10년 초과'] - 53768.4) < 0.1
+
+
+def pd_and(d, kw):
+    m = True
+    for k, v in kw.items():
+        m = m & (d[k] == v)
+    return m
 
 
 def test_nonlife_contract_transfer():

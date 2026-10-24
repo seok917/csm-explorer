@@ -23,6 +23,7 @@ SRC = os.path.join(B, 'raw', 'extra_tables.csv.gz')
 STD = [(0, 1), (1, 2), (2, 5), (5, 10), (10, np.inf)]
 STD_LB = ['1년 이내', '1~2년', '2~5년', '5~10년', '10년 초과']
 UNITS = {'백만원': 0.01, '천원': 1e-5, '억원': 1.0, '원': 1e-8}      # → 억 원
+NONLIFE = seg.SEG == 'nonlife'
 INF_WORD = re.compile(r'초과|이상|이후|후')
 
 
@@ -113,16 +114,64 @@ def grid(g):
     if hdr is None:
         return None
     labels = [str(c).strip() for c in v.loc[hdr] if LABEL.search(str(c)) and num(str(c)) is None]
+    side = None                 # 손보 XBRL형: '발행한 보험계약 | 보유 재보험계약' 구간을 한 행에 나란히 → 발행한 계약 쪽 구간만
+    if NONLIFE and re.search(r'발행한 보험계약.*보유\s?재보험', unit_txt) and labels and labels[0] in labels[1:]:
+        side = labels.index(labels[0], 1)
+        labels = labels[:side]
     rows = []
     for r in v.index[v.index > hdr]:
         cells = [str(c).strip() for c in v.loc[r]]
         nums = [num(c) for c in cells if c and num(c) is not None]
+        if nums and side:                                   # 발행한 계약 구간(+ 그 구간 합계 열)만
+            nums = nums[:side + 1] if len(nums) >= 2 * side + 2 else nums[:side]
         if nums:
             rows.append((' '.join(c for c in cells if c and num(c) is None), nums))
     lens = pd.Series([len(n) for _, n in rows])
     if len(lens) and lens.mode().iloc[0] == len(labels) + 1 and buckets(labels)[-1:] != ['total']:
         labels = labels + ['합계(머리글 없음)']                # 행마다 숫자가 하나 더 있으면 끝 열은 이름 없는 합계 열
     return dict(labels=labels, rows=rows, units=units, text=unit_txt)
+
+
+def grid_transposed(g):
+    """손보: 기간 구간이 행으로 내려가는 표 → grid()와 같은 모양(머리글 = 구간들 + 합계, 행 = 열마다 한 줄)의 묶음 목록
+    - DB·AIG 2023: [구분 | 당기말 | 전기말] 아래 '1년미만', '1년이상 2년미만' … 행, '보험계약마진 잔액' 행이 합계
+    - 한화 2025~: XBRL형으로 포트폴리오마다 '합계 구간 1년 이내 …' ~ '합계 구간 합계' 묶음이 이어짐(맨 끝이 모든 포트폴리오)"""
+    g = g.assign(row=g['row'].astype(int), col=g['col'].astype(int))
+    v = g.pivot_table(index='row', columns='col', values='value', aggfunc='first').sort_index().sort_index(axis=1).fillna('')
+    unit_txt = ' '.join(v.astype(str).values.ravel()) + ' ' + g.ctx.iloc[0]
+    units = [u for u in UNITS if re.search(r'단위\s*[:：]?\s*' + u, unit_txt)] or list(UNITS)
+    out, cur, total_first = [], None, None
+    for r in v.index:
+        cells = [str(c).strip() for c in v.loc[r] if str(c).strip()]
+        nums = [num(c) for c in cells if num(c) is not None and re.search(r'\d', c)]
+        labs = [c for c in cells if num(c) is None or not re.search(r'\d', c)]
+        if not nums or not labs:
+            continue
+        lab = labs[-1]
+        b = buckets([lab])[0]
+        if isinstance(b, tuple):
+            if cur is None:
+                cur = dict(labels=[], vals=[])
+            cur['labels'].append(lab); cur['vals'].append(nums)
+        elif re.search(r'합\s*계|잔\s*액', lab) and not re.search(r'\d', lab):
+            if cur and len(cur['labels']) >= 4:             # 묶음 끝의 합계 행
+                cur['total'] = nums; out.append(cur); cur = None
+            else:
+                total_first = nums                            # 구간보다 먼저 나온 잔액 행(DB·AIG)
+    if cur and len(cur['labels']) >= 4:
+        if total_first and len(total_first) == len(cur['vals'][0]):
+            cur['total'] = total_first
+        out.append(cur)
+    res = []
+    for blk in out:
+        k = len(blk['vals'][0])
+        if any(len(x) != k for x in blk['vals']):
+            continue
+        tot = blk.get('total') if blk.get('total') and len(blk['total']) == k else None
+        labels = blk['labels'] + (['합계'] if tot else [])
+        rows = [(f'열{j + 1}', [x[j] for x in blk['vals']] + ([tot[j]] if tot else [])) for j in range(k)]
+        res.append(dict(labels=labels, rows=rows, units=units, text=unit_txt))
+    return res
 
 
 def joined(prev, cur):
@@ -186,6 +235,7 @@ def summarize(E, mv):
                s1_min_co=x25.s1.idxmin(), s1_max_co=x25.s1.idxmax(),
                rank_corr=round(float(m.s1.corr(m.rr, method='spearman')), 2), n_rank=int(len(m)),
                bt_median={k: round(float(v), 2) for k, v in bt.items()},
+               bt_range={k: [round(float(g.min()), 2), round(float(g.max()), 2)] for k, g in L[L.bt_ratio.notna()].groupby('at').bt_ratio},
                restated_2023=sorted(chg))
     json.dump(out, open(os.path.join(D, 'schedule_summary.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     return out
@@ -209,14 +259,21 @@ def main():
         targets = {k[1]: v for k, v in asof.items() if k[0] == co and k[1] in (per, f'{yr - 1}.12') and v >= 10}   # 그 보고서의 당기·전기 시점만
         # (CSM 10억 원 미만 — 계약이전으로 0이 된 해, 장기보험이 거의 없는 디지털 손보 — 은 합계 허용오차(1억)보다 의미 있는 대응이 어려워 제외)
         G = grid(g)
+        TG = grid_transposed(g) if NONLIFE and (G is None or not candidates(G)) else []   # 손보: 구간이 행으로 내려간 표
+        if G is None and not TG:
+            continue
+        J = None
+        if G is not None:
+            pk = (co, per, rc, doc)
+            prev = last.get(pk); last[pk] = dict(G, tn=tno)
+            J = joined(prev, G) if prev and 0 < tno - prev['tn'] <= 3 else None     # 사이에 주석 표가 끼어 있을 수 있음
+        if G is not None and '마진' not in G['text'] and not (J and '마진' in J['text']):   # CSM 표가 아니면 제외(합계가 우연히 맞는 다른 표 방지)
+            G, J = None, None
+        TG = [t for t in TG if '마진' in t['text']]
+        pool = (candidates(G) if G is not None else []) + (candidates(J) if J else []) + [c for t in TG for c in candidates(t)]
         if G is None:
-            continue
-        pk = (co, per, rc, doc)
-        prev = last.get(pk); last[pk] = dict(G, tn=tno)
-        J = joined(prev, G) if prev and 0 < tno - prev['tn'] <= 3 else None     # 사이에 주석 표가 끼어 있을 수 있음
-        if '마진' not in G['text'] and not (J and '마진' in J['text']):   # CSM 표가 아니면 제외(합계가 우연히 맞는 다른 표 방지)
-            continue
-        for nm, vec, tcol, units in candidates(G) + (candidates(J) if J else []):
+            G = TG[0] if TG else dict(text='')
+        for nm, vec, tcol, units in pool:
             raw = sum(v for _, v in vec)
             if raw == 0 or max(abs(v) for _, v in vec) > 0.9 * abs(raw):          # 한 구간에 몰린 표는 예정표가 아님
                 continue

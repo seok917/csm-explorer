@@ -295,8 +295,10 @@ try { const s = JSON.parse(localStorage.getItem(LSKEY)||'null'); if (s && byName
 const $ = id => document.getElementById(id);
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const esc = s => String(s).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
-const won = x => { if (x==null) return '–'; const s = x<0?'−':''; x=Math.abs(x); const jo=Math.floor(x/10000), e=x%10000;
-  return s + (jo? `${jo}조 ${Math.round(e).toLocaleString('ko-KR')}억` : `${Math.round(e).toLocaleString('ko-KR')}억`); };
+const won = x => { if (x==null) return '–'; if (x===0) return '0'; const s = x<0?'−':''; x=Math.abs(x);
+  if (x<10) return s + x.toFixed(1) + '억';                         // 10억 원 미만은 소수 첫째 자리까지
+  const r=Math.round(x), jo=Math.floor(r/10000), e=r%10000;         // 반올림 뒤 조·억으로 나눔('1조 10,000억' 방지)
+  return s + (jo? (e? `${jo}조 ${e.toLocaleString('ko-KR')}억` : `${jo}조`) : `${e.toLocaleString('ko-KR')}억`); };
 const n0 = x => x==null? '–' : (x<0?'−':'') + Math.round(Math.abs(x)).toLocaleString('ko-KR');
 const pct = (x,d=0) => x==null? '–' : (x*100).toFixed(d)+'%';
 const save = () => { try { localStorage.setItem(LSKEY, JSON.stringify(cur)); } catch(e){} };
@@ -421,8 +423,8 @@ function render(){
   const nOk=yc.filter(k=>k.status==='통과').length, nAll=yc.filter(k=>k.status!=='자료없음').length;
   const g=r.growth;
   $('kpis').innerHTML=[
-    ['기말 CSM', won(r.close), `<span class="${g>=0?'up':'down'}">${g>=0?'▲':'▼'} ${pct(Math.abs(g),1)}</span> 기초 대비`],
-    ['신계약 CSM', won(r.new), `기초 CSM의 ${pct(r.new/r.open)}`],
+    ['기말 CSM', won(r.close), g==null? '기초 CSM이 0(첫 판매 해)' : `<span class="${g>=0?'up':'down'}">${g>=0?'▲':'▼'} ${pct(Math.abs(g),1)}</span> 기초 대비`],
+    ['신계약 CSM', won(r.new), r.open>0? `기초 CSM의 ${pct(r.new/r.open)}` : '—'],
     ['조정 추정치 변동', won(r.adjust), r.offset!=null? `신계약 대비 ${pct(r.offset)} · 업계 중앙 ${pct(D.meta.offset_median[cur.year])}`:'—'],
     ['전환일 이후 계약 비중', pct(r.post_share,1), '수정소급·공정가치법 외 계약의 CSM (회사에 따라 완전소급 계약 포함)'],
     ['자동 검증', `${nOk} / ${nAll}`, nAll? (nOk===nAll? '모든 규칙 통과':'확인할 항목 있음') : '대상 규칙 없음']
@@ -509,8 +511,9 @@ function renderCap(c, r){
     $('judgeList').innerHTML=[
       `<b>안정적인가 — 예.</b> ${NL? '같은 형식으로 2024·2025년 말 예정표를 모두 낸' : '같은 기준(2024년 이후 연차별 공시)으로 낸'} ${J.n_stable}개사의 2024→2025 변화는 '1년 이내 비중' 중앙값 ${p1(J.d_s1_median)}, '10년 초과 비중' ${p1(J.d_s10_median)}에 그쳤습니다. 해마다 출렁이는 값이 아니라 상품 구성에서 나오는 회사의 체질입니다.`,
       `<b>회사를 구별하나 — 예.</b> 2025년 말 1년 이내 비중은 ${esc(J.s1_min_co)} ${p0(J.s1_range[0])}부터 ${esc(J.s1_max_co)} ${p0(J.s1_range[1])}까지, 10년 넘어 인식될 비중은 ${p0(J.s10_range[0])}~${p0(J.s10_range[1])}로 벌어집니다(${J.n_2025}개사).`,
-      `<b>미래를 가리키나 — 순위는 예.</b> 2024년 말 '1년 이내 비중'이 높은 회사일수록 2025년 실제 상각률도 높았습니다(순위 상관 ${J.rank_corr.toFixed(2)}, ${J.n_rank}개사).`,
-      `<b>이익 금액 예측으로 쓸 수 있나 — 아니요.</b> 다음 해 실제 상각은 예정된 '1년 이내' 금액의 중앙값 ${Object.entries(J.bt_median).map(([k,v])=>`${v.toFixed(2)}배(${esc(k)} 예정)`).join(', ')}였습니다. 예정표는 그 시점 잔액만 대상이라 다음 해 신계약·이자부리·가정 변경이 빠지기 때문입니다.`,
+      J.rank_corr>=0.5? `<b>미래를 가리키나 — 순위는 예.</b> 2024년 말 '1년 이내 비중'이 높은 회사일수록 2025년 실제 상각률도 높았습니다(순위 상관 ${J.rank_corr.toFixed(2)}, ${J.n_rank}개사).`
+        : `<b>미래를 가리키나 — ${J.rank_corr>=0.3?'약하게만':'아니요'}.</b> 2024년 말 '1년 이내 비중'과 2025년 실제 상각률의 순위 상관이 ${J.rank_corr.toFixed(2)}(${J.n_rank}개사)라, 회사 순위를 가늠하는 참고 정도로만 봐야 합니다.`,
+      `<b>이익 금액 예측으로 쓸 수 있나 — 아니요.</b> 다음 해 실제 상각은 예정된 '1년 이내' 금액의 중앙값 ${Object.entries(J.bt_median).map(([k,v])=>`${v.toFixed(2)}배(${esc(k)} 예정${J.bt_range&&J.bt_range[k]?`, 회사별 ${J.bt_range[k][0].toFixed(2)}~${J.bt_range[k][1].toFixed(2)}배`:''})`).join(', ')}였습니다. 예정표는 그 시점 잔액만 대상이라 다음 해 신계약·이자부리·가정 변경이 빠지기 때문입니다.`,
       J.restated_2023.length? `<b>주의할 점 — 기준 변경.</b> ${J.restated_2023.map(esc).join(', ')}는 2023년 말 예정표를 2024년 보고서에서 다른 값으로 다시 공시했습니다(연차별 공시로 바뀐 해). 2023년과 2024년 이후 값을 바로 이어 비교하면 안 됩니다.` : '',
       `<b>그래서</b> 수준(금액)보다 <b>모양</b>을 봅니다: 이익이 얼마나 오래, 고르게 나오는가(이익의 지속성)를 회사끼리 비교하는 지표로 씁니다.`
     ].filter(Boolean).map(t=>`<li>${t}</li>`).join(''); } else $('judge').hidden=true;
@@ -594,6 +597,7 @@ function renderSens(c){
 /* ---------- 검증 현황 ---------- */
 const RULES=['R1 변동표 항등식','R2 금감원 잔액 대조','R3 기초=전기 기말','R4 포트폴리오 합계 대조','R5 급변 탐지(위험보험료)','R5 급변 탐지(상쇄율)','R6 기준 변경 문구'];
 const RSHORT=['R1 항등식','R2 금감원','R3 연속성','R4 합계','R5 위험보험료','R5 상쇄율','R6 기준 변경'];
+if((D.meta.rules||[]).length){ for(let i=RULES.length-1;i>=0;i--) if(!D.meta.rules.includes(RULES[i])){ RULES.splice(i,1); RSHORT.splice(i,1); } }   // 그 업권에서 실행한 규칙만(손보: R4·R6·위험보험료 없음)
 const SYM={'통과':'✓','주의':'!','불일치':'×','자료없음':'–'};
 const all=C.flatMap(c=>c.checks.map(k=>Object.assign({co:c.name},k)));
 const nFlag=all.filter(k=>k.status==='불일치'||k.status==='주의').length;
@@ -613,7 +617,12 @@ function renderQa(){
   $('matrix').innerHTML=`<thead><tr><th>회사</th>${RSHORT.map(r=>`<th>${r}</th>`).join('')}</tr></thead><tbody>${rows}</tbody>`;
   const fl=all.filter(k=>(k.status==='불일치'||k.status==='주의')&&ys.includes(k.year));
   $('flagged').innerHTML= fl.length? fl.map(k=>`<li><div><b>${esc(k.co)}</b><span class="chip ${ST[k.status][0]}">${ST[k.status][1]}</span></div><div><b>${esc(k.rule)}</b><span>${esc(k.detail)}</span>${k.decision?`<span class="review"><em>${esc(k.decision)}</em>${esc(k.note)}</span>`:'<span class="review"><em>미검토</em></span>'}</div></li>`).join('') : '<li class="empty">이 기간에 걸린 항목이 없습니다.</li>';
-  if(D.extract){ const x=D.extract;
+  if(D.extract && D.extract.kind==='nonlife'){ const x=D.extract;   // 손보: 수작업 판독값 대신 '표 고르기 방식'과 독립 재계산 결과
+    $('exPanel').querySelector('h2').innerHTML='원문 표 자동 추출 <small>표를 고른 근거와, 원문 표로 손계산한 독립 재계산 대조</small>';
+    $('exStats').innerHTML=`${x.n}개 회사·기간 중 <b>자동 추출 ${x.auto}</b> · 표 고르기: 금감원 값과 부채인 계약 행 정확 대조 <b>${x.methods.liab}</b> · 순액만 공시해 범위 대조 ${x.methods.band} · 금감원 값 0이라 당기·전기 표 연결 ${x.methods.chain}`+
+      (x.hand? ` · <b>독립 재계산 ${x.hand.n}건 중 일치 ${x.hand.match}</b>${x.hand.fixed? `, 수정 후 일치 ${x.hand.fixed}`:''}` : '');
+    $('exCases').innerHTML= x.cases.length? `<thead><tr><th>회사·기간</th><th>독립 재계산</th><th>무엇이 달랐나</th><th>조치</th></tr></thead><tbody>${x.cases.map(c=>`<tr><td>${esc(c.company)} ${esc(c.year)}</td><td>${esc(c.result)}</td><td>${esc(c.issue)}</td><td>${esc(c.action)}</td></tr>`).join('')}</tbody>` : '';
+  } else if(D.extract){ const x=D.extract;
     $('exStats').innerHTML=`${x.n}개 회사·기간 중 <b>자동 추출 ${x.auto}</b> · 수작업 판독값과 <b>일치 ${x.match}</b>(그중 ${x.extra}건은 수작업에 없던 전환방법별 값까지 확보) · <b>자동값으로 수작업 오류 수정 ${x.corrected}</b> · 사유를 적은 보정 ${x.overridden}`;
     $('exCases').innerHTML=`<thead><tr><th>회사·기간</th><th>처리</th><th>근거</th><th>최종값</th></tr></thead><tbody>${x.cases.map(c=>`<tr><td>${esc(c.company)} ${esc(c.year)}</td><td>${esc(c.verdict)}</td><td>${esc(c.why)}</td><td>${esc(c.diff||'—')}</td></tr>`).join('')}</tbody>`;
   } else $('exPanel').hidden=true;
