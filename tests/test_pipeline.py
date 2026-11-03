@@ -69,6 +69,7 @@ def test_every_flag_has_review_note():
 
 def test_shinhan_2025_all_pass():
     st = {r['rule']: r['status'] for r in checks() if r['company'] == '신한라이프' and r['year'] == '2025'}
+    st.pop('R8 예실차 재공시 대조', None)          # 2025 값을 다시 적을 2026 사업보고서가 아직 없음(자료없음이 정상)
     assert st and all(v == '통과' for v in st.values()), st
 
 
@@ -666,6 +667,97 @@ def test_nonlife_every_flag_reviewed_and_summaries_pass():
     for c in web['companies']:
         for y, r in c['years'].items():
             assert r['summary_guard']['ok'], (c['name'], y, r['summary_guard'])
+
+
+# ---------- 보험금 예실차(공시 주석 자동 추출) · 업계 한눈에 ----------
+def _ae(base):
+    import pandas as pd
+    return pd.read_csv(os.path.join(base, 'ae_auto.csv'), dtype={'year': str, 'report': str})
+
+
+def test_claims_number_and_scope_parsing():
+    from extract_claims import num, scope_of, parse
+    assert num('(0.037)')[:2] == (-0.037, 3) and num('(-) 5.86%')[0] == -5.86 and num('-127%')[0] == -127
+    assert num('-11.3%p')[2] and num('(+) 3.17')[0] == 3.17 and num('-')[0] == 0 and num('0.2%p')[0] == 0.2 and num('비율') is None
+    assert scope_of('16-13 당기 및 전기 중 최적가정 관련 예실차비율 16-13-1 보험금 예실차비율') is None      # 두 기간을 함께 가리키는 말
+    assert scope_of('해당기간의 이자 부리 효과') is None and scope_of('1) 보험금 예실차비율<당기> <전기>') == '전기'
+    assert scope_of('2) 제75(전)기 기말 ① 보험금 예실차비율') == '전기' and scope_of('(4) 최적가정<당기말>1) 보험금 예실차비율') == '당기'
+    # 당기 | 전기 묶음이 한 행에 나란한 표(iM라이프 2025) → 두 값
+    g = [['(단위 : %)', '', '', '', '', ''], ['제39(당)기', '제38(전)기', '', '', '', ''],
+         ['예상손해율(A)', '실제손해율(B)', '보험금 예실차비율(C=A-B)', '예상손해율(A)', '실제손해율(B)', '보험금 예실차비율(C=A-B)'],
+         ['118', '111', '7', '122', '107', '15']]
+    r = parse(g)
+    assert [(x['col_scope'], x['exp'], x['gap']) for x in r] == [('당기', 118, 7), ('전기', 122, 15)], r
+    # XBRL 비율 + 예실차만 %p로 적은 표(동양생명 2025) → 예실차를 100배 하지 않음
+    r = parse([['', '공시금액'], ['보험금 예상손해율', '0.8390'], ['보험금 실제손해율', '0.9520'], ['보험금 예실차비율', '-11.3%p']])
+    assert r[0]['exp'] == 83.9 and r[0]['gap'] == -11.3, r
+
+
+def test_claims_hand_checked_values():
+    """원문 표를 직접 읽어 맞춘 값(공시 주석) — DB손보·삼성화재·NH농협손보, 신한라이프·동양생명·미래에셋생명"""
+    nl, lf = _ae(ND), _ae(D)
+    want = {('DB손해보험', '2024'): (94.6, 90.3, 4.3), ('DB손해보험', '2025'): (91.9, 95.6, -3.7),
+            ('삼성화재', '2025'): (95.18, 97.56, -2.37), ('NH농협손해보험', '2025'): (89, 109, -20), ('NH농협손해보험', '2024'): (92, 93, -1),
+            ('메리츠화재', '2024'): (99.49, 90.18, 9.31)}
+    for (co, y), v in want.items():
+        r = nl[(nl.company == co) & (nl.year == y)].iloc[0]
+        assert (round(r.exp, 2), round(r.act, 2), round(r.ae, 2)) == v, (co, y, r.exp, r.act, r.ae)
+    want = {('신한라이프', '2025'): (93.12, 99.39, -6.27), ('동양생명', '2025'): (83.9, 95.2, -11.3), ('미래에셋생명', '2025'): (96, 101, -5),
+            ('교보라이프플래닛', '2024'): (81, 80, 1), ('iM라이프', '2025'): (118, 111, 7)}
+    for (co, y), v in want.items():
+        r = lf[(lf.company == co) & (lf.year == y)].iloc[0]
+        assert (round(r.exp, 2), round(r.act, 2), round(r.ae, 2)) == v, (co, y, r.exp, r.act, r.ae)
+
+
+def test_claims_identity_and_restatements():
+    """화면 값은 모두 예상 − 실제 = 예실차(반올림 허용), 다음 해 보고서의 전기 값과 다르면 검토 기록이 있어야 함"""
+    from extract_claims import tol
+    for base in (D, ND):
+        a = _ae(base)
+        assert len(a) >= 25 and a.ident_ok.all(), a[~a.ident_ok]
+        assert ((a.ae - (a.exp - a.act)).abs() <= a.dec.map(tol)).all()
+        assert a.exp.between(30, 300).all() and a.act.between(30, 300).all()
+        ck = list(csv.DictReader(open(os.path.join(base, 'checks.csv'), encoding='utf-8-sig')))
+        r78 = [k for k in ck if k['rule'].startswith(('R7', 'R8'))]
+        assert len(r78) == 2 * len(a)
+        assert all(k['decision'] for k in r78 if k['status'] in ('불일치', '주의'))
+    lf = _ae(D)
+    re = lf[lf.re_ae.notna()]
+    assert len(re) >= 8                                       # 당기·전기 판단이 맞으면 다음 해 보고서의 전기 값과 같아야 함
+    bad = re[(re.ae - re.re_ae).abs() > re.dec.map(tol)]
+    assert list(zip(bad.company, bad.year)) == [('iM라이프', '2024')], bad
+
+
+def test_claims_match_manual_reading_life():
+    import pandas as pd
+    m = pd.read_csv(os.path.join(D, 'ae_compare.csv'), dtype={'year': str})
+    assert (m.status == '일치').sum() >= 41 and set(zip(m[m.status != '일치'].company, m[m.status != '일치'].year)) <= {('iM라이프', '2024')}, m[m.status != '일치']
+
+
+def test_overview_and_claims_in_pages():
+    for base, page in ((D, 'index.html'), (ND, 'nonlife.html')):
+        web = json.load(open(os.path.join(base, 'web.json'), encoding='utf-8'))
+        assert web['meta']['has']['ae'] and '2025' in web['meta']['ae_median'] and web['claims']['n'] >= 25
+        assert any(c['ae'] for c in web['companies'])
+        html = open(os.path.join(ROOT, page), encoding='utf-8').read()
+        assert 'id="tabOv"' in html and 'function renderOv' in html and 'id="aePanel"' in html
+    db = {c['name']: c for c in json.load(open(os.path.join(ND, 'web.json'), encoding='utf-8'))['companies']}['DB손해보험']
+    assert [(a['year'], a['ae']) for a in db['ae']] == [('2024', 4.3), ('2025', -3.7)]
+
+
+def test_pipeline_imports_are_installable():
+    """GitHub Actions에는 requirements.txt만 설치됨 → 그 밖의 패키지(scipy 등)를 쓰면 주간 업데이트가 멈춤(2026-10 실제 발생)"""
+    import ast, glob
+    req = {l.split('>=')[0].split('==')[0].strip().lower() for l in open(os.path.join(ROOT, 'requirements.txt')) if l.strip() and not l.startswith('#')}
+    local = {os.path.basename(f)[:-3] for f in glob.glob(os.path.join(ROOT, 'pipeline', '*.py'))}
+    for f in glob.glob(os.path.join(ROOT, 'pipeline', '*.py')):
+        src = open(f, encoding='utf-8').read()
+        assert "'spearman'" not in src and "'kendall'" not in src, f          # pandas가 내부에서 scipy를 부름
+        for n in ast.walk(ast.parse(src)):
+            mods = [a.name for a in n.names] if isinstance(n, ast.Import) else [n.module] if isinstance(n, ast.ImportFrom) and n.module and n.level == 0 else []
+            for m in mods:
+                top = m.split('.')[0]
+                assert top in sys.stdlib_module_names or top in local or top.lower() in req, (os.path.basename(f), m)
 
 
 def pd_notna(v):

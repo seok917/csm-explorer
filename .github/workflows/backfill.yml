@@ -26,6 +26,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}       # 대기 중이던 실행도 시작 시점의 최신 main에서
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

@@ -1,5 +1,5 @@
 """
-2단계: 자동 검증 엔진 — 규칙 6개를 회사·연도마다 실행하고 결과를 checks.csv로 저장
+2단계: 자동 검증 엔진 — 규칙 8개(R1~R8, 업권에 자료가 있는 것만)를 회사·연도마다 실행하고 결과를 checks.csv로 저장
 상태: 통과 / 주의(사람 확인 필요) / 불일치 / 자료없음
 """
 import pandas as pd, numpy as np, os, sys, time
@@ -80,6 +80,31 @@ for y, g in mv[mv.year.isin([o for o in ORDER if len(o) == 4]) & mv.offset.notna
 # R6 공시 문구 기반 기준 변경 탐지
 for _, r in ns.iterrows():
     add(r.company, r.report[:4], 'R6 기준 변경 문구', '주의', f'[{r.kind}] …{r.text.strip()[:110]}…')
+
+# R7·R8 보험금 예실차비율(공시 주석, extract_claims.py) — 예실차 = 예상손해율 − 실제손해율, 다음 해 보고서의 전기 값과 대조
+AE = f'{D}/ae_auto.csv'
+if os.path.exists(AE):
+    from extract_claims import tol
+    for _, r in pd.read_csv(AE, dtype={'year': str, 'report': str}).iterrows():
+        co, y = r.company, r.year
+        f = lambda e, a, g: f'예상 {e:.2f}% − 실제 {a:.2f}% = {e - a:+.2f}%p'
+        if not r.gap_given:
+            add(co, y, 'R7 예실차 산식', '자료없음', '예실차 칸이 비어 있어 예상 − 실제로 계산')
+        elif not r.ident_ok:
+            add(co, y, 'R7 예실차 산식', '불일치', f'{f(r.exp, r.act, r.ae)} vs 공시 예실차 {r.ae:+.2f}%p')
+        elif isinstance(r.other_bad, str) and r.other_bad:
+            add(co, y, 'R7 예실차 산식', '주의', f'{f(r.exp, r.act, r.ae)} (쓴 표는 맞음) · 같은 값을 적은 다른 표가 다름 — {r.other_bad}')
+        else:
+            add(co, y, 'R7 예실차 산식', '통과', f'{f(r.exp, r.act, r.ae)}, 공시 {r.ae:+.2f}%p (허용 ±{tol(r.dec):g}%p)')
+        if r.scope != '당기':
+            add(co, y, 'R8 예실차 재공시 대조', '자료없음', f'{y} 보고서에 표가 없어 {r.report[:4]} 보고서의 전기 값을 사용')
+        elif pd.isna(r.re_ae):
+            add(co, y, 'R8 예실차 재공시 대조', '자료없음', '다음 해 보고서가 아직 없거나 전기 값을 싣지 않음')
+        else:
+            t = tol(min(r.dec, r.re_dec))
+            ok = abs(r.exp - r.re_exp) <= t and abs(r.act - r.re_act) <= t and abs(r.ae - r.re_ae) <= t
+            add(co, y, 'R8 예실차 재공시 대조', '통과' if ok else '주의',
+                f'{y} 보고서 {r.exp:g}/{r.act:g}/{r.ae:+g} vs 다음 해 보고서의 전기 {r.re_exp:g}/{r.re_act:g}/{r.re_ae:+g} (예상/실제/예실차, 허용 ±{t:g}%p)')
 
 ck = pd.DataFrame(out)
 # 검토 메모(사람이 원문을 확인하고 남긴 판단)를 결합 → 감사 추적

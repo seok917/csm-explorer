@@ -27,6 +27,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}       # 대기 중이던 실행도 시작 시점의 최신 main에서
       - id: key
         name: API 키 등록 여부 확인
         run: echo "has=${{ secrets.ANTHROPIC_API_KEY != '' }}" >> "$GITHUB_OUTPUT"
@@ -60,7 +62,7 @@ jobs:
           git add -A data index.html segments nonlife.html
           if git diff --cached --quiet; then echo "변경 없음"; exit 0; fi
           git commit -m "AI 설명 갱신 (GitHub Actions 자동 실행)"
-          git push
+          for i in 1 2 3; do git pull --rebase && git push && break; sleep 5; done
       - if: steps.key.outputs.has == 'true'
         name: 사이트 다시 배포 요청
         continue-on-error: true

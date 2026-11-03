@@ -1,5 +1,5 @@
 # 분기 자동 업데이트: 매주 DART에서 새 공시를 확인하고(생보 → 손보), 새 보고서가 있으면
-# 수집 → 원문 표 추출 → 자동 검증 → 요약 → AI 설명(숫자·표현 대조) → 테스트 → 커밋 → 사이트 갱신
+# 수집 → 원문 표 추출(변동표·예정표·민감도·보험금 예실차) → 자동 검증 → 요약 → AI 설명(숫자·표현 대조) → 테스트 → 커밋 → 사이트 갱신
 # 키는 코드에 없음: 저장소 Secrets의 DART_API_KEY, ANTHROPIC_API_KEY만 사용
 name: 분기 자동 업데이트
 on:
@@ -25,6 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}       # 대기 중이던 실행도 시작 시점의 최신 main에서(보강 수집 등 앞선 커밋과 충돌하지 않게)
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -61,6 +63,7 @@ jobs:
           python pipeline/extract_schedule.py
           python pipeline/build_fisis.py
           python pipeline/extract_sensitivity.py
+          python pipeline/extract_claims.py
           python pipeline/validate.py
           python pipeline/export_web.py
       - if: steps.go.outputs.run == 'true'
@@ -102,6 +105,7 @@ jobs:
           python pipeline/extract_schedule.py
           python pipeline/build_fisis.py
           python pipeline/extract_sensitivity.py
+          python pipeline/extract_claims.py
           python pipeline/validate.py
           python pipeline/export_web.py
           python pipeline/ai_explain.py
@@ -118,7 +122,7 @@ jobs:
           git add -A raw data index.html segments nonlife.html
           if git diff --cached --quiet; then echo "변경 없음"; exit 0; fi
           git commit -m "분기 자동 업데이트: 새 공시 반영 (GitHub Actions)"
-          git push
+          for i in 1 2 3; do git pull --rebase && git push && break; sleep 5; done
       - if: steps.go.outputs.run == 'true' || steps.go_nl.outputs.run == 'true'
         name: 6) 사이트 다시 배포 요청
         continue-on-error: true

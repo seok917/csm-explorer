@@ -10,7 +10,16 @@ D = seg.DATA
 t0 = time.perf_counter()
 mv = pd.read_csv(f'{D}/movement.csv', dtype={'year': str})
 asm = pd.read_csv(f'{D}/assump.csv', dtype={'year': str})
-ae = pd.read_csv(f'{D}/ae.csv', dtype={'year': str})
+ae = pd.read_csv(f'{D}/ae.csv', dtype={'year': str})            # 생보: 분석 엑셀 수작업 판독값(손보는 빈 표)
+AEA = pd.read_csv(f'{D}/ae_auto.csv', dtype={'year': str, 'report': str}) if os.path.exists(f'{D}/ae_auto.csv') else None   # 공시 주석 자동 추출(extract_claims.py)
+if AEA is not None:                                             # 자동 추출값 우선, 자동으로 못 찾은 회사·연도만 수작업 판독값
+    _src = lambda r: f"{r.report[:4]} 보고서 주석 표 {r.table_no}" + ('' if r.scope == '당기' else ' (다음 해 보고서의 전기 값)') + (' · 연결' if r.section == '연결' else '')
+    _a = AEA.assign(src='공시 자동', source=AEA.apply(_src, axis=1))[['company', 'year', 'exp', 'act', 'ae', 'src', 'source']]
+    _m = ae.merge(_a[['company', 'year']], on=['company', 'year'], how='left', indicator=True)
+    _m = _m[_m._merge == 'left_only'].drop(columns='_merge').assign(src='수작업', source='분석 엑셀 수작업 판독값')
+    ae = pd.concat([_a, _m], ignore_index=True)
+else:
+    ae = ae.assign(src='수작업', source='분석 엑셀 수작업 판독값')
 lr = pd.read_csv(f'{D}/lossratio.csv')
 ck = pd.read_csv(f'{D}/checks.csv', dtype={'year': str}).fillna({'decision': '', 'note': ''})
 fx = pd.read_csv(f'{D}/fix_log.csv')
@@ -197,7 +206,8 @@ for co, g in mv.groupby('company'):
     n = ns[ns.company == co]
     data['companies'].append(dict(
         name=co, alias=ALIAS.get(co, []), years=rows,
-        ae=[dict(year=x.year, exp=x.exp, act=x.act, ae=x.ae) for x in e.itertuples()],
+        ae=[dict(year=x.year, exp=None if pd.isna(x.exp) else round(x.exp, 2), act=None if pd.isna(x.act) else round(x.act, 2), ae=round(x.ae, 2),
+                 src=x.src, source=x.source) for x in e.itertuples()],
         lossratio=[dict(year=int(x.year), cat=x.cat, b1=x.b1, r1=None if pd.isna(x.r1) else round(x.r1, 2),
                         rPV=None if pd.isna(x.rPV) else round(x.rPV, 2)) for x in l.itertuples()],
         checks=[dict(year=x.year, rule=x.rule, status=x.status, detail=x.detail, decision=x.decision, note=x.note) for x in c.itertuples()],
@@ -243,6 +253,18 @@ if SEN is not None:                                  # 충격별 업계 중앙�
                            | {'n': int(len(g))} for a, g in L.groupby('asof')}
 if os.path.exists(f'{D}/schedule_summary.json'):
     data['schedule_eval'] = json.load(open(f'{D}/schedule_summary.json', encoding='utf-8'))
+# 보험금 예실차: 업계 중앙값(그해 CSM 100억 원 이상 회사) · 추출 방식 · 수작업 판독값 대조(생보)
+_big = set(zip(mv[mv.close >= MED_MIN].company, mv[mv.close >= MED_MIN].year))
+ae_med = {y: dict(median=round(float(g.ae.median()), 2), n=int(len(g)), n_neg=int((g.ae < 0).sum()))
+          for y, g in ae[[k in _big for k in zip(ae.company, ae.year)]].groupby('year') if len(g) >= 5}
+if AEA is not None:
+    cand = pd.read_csv(f'{D}/claims_candidates.csv')
+    cmp_p = f'{D}/ae_compare.csv'
+    cmp = pd.read_csv(cmp_p, dtype={'year': str}) if os.path.exists(cmp_p) else None
+    data['claims'] = dict(n=int(len(AEA)), n_co=int(AEA.company.nunique()), n_tables=int(len(cand)),
+                          how=AEA.how.value_counts().to_dict(), next_year=int((AEA.scope != '당기').sum()),
+                          compare=None if cmp is None else dict(n=int(cmp.status.isin(['일치', '차이']).sum()), match=int((cmp.status == '일치').sum()),
+                                                                 cases=cmp[cmp.status != '일치'][['company', 'year', 'status', 'exp_m', 'act_m', 'ae_m', 'exp', 'act', 'ae']].to_dict('records')))
 data['ai_stats'] = {k: sum(1 for v in AI.values() if v['status'] == k) for k in ('ok', 'fixed', 'rejected')}
 data['meta'] = dict(n_company=len(data['companies']), n_checks=int(len(ck)), n_reports=int(len(pd.read_csv(f'{D}/../raw/filings.csv'))),
                     check_counts=ck.status.value_counts().to_dict(), reviewed=int((ck.status.isin(['불일치','주의']) & (ck.decision != '')).sum()), flagged=int(ck.status.isin(['불일치','주의']).sum()), offset_median={k: round(v, 4) for k, v in med.items()},
@@ -250,6 +272,7 @@ data['meta'] = dict(n_company=len(data['companies']), n_checks=int(len(ck)), n_r
                     built=pd.Timestamp.now(tz='Asia/Seoul').strftime('%Y-%m-%d'),
                     seg=SEGS[seg.SEG], segs=[dict(key=v['key'], label=v['label'], page=v['page']) for v in SEGS.values()],
                     rules=rules, n_rules=len({r.split(' ')[0] for r in rules}),
+                    ae_median=ae_med,
                     has=dict(assump=bool(len(asm)), ae=bool(len(ae)), lossratio=bool(len(lr)), notes=bool(len(ns))))
 def clean(o):   # NaN·numpy 값 → JSON 표준값
     if isinstance(o, dict): return {k: clean(v) for k, v in o.items()}

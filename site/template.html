@@ -40,6 +40,36 @@ h1,h2,h3{text-wrap:balance;margin:0}
 .segsw a:hover:not([aria-current]){color:var(--ink)}
 .segsw a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .mix{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:20px}
+.mix h3{font-size:13px;font-weight:600;margin:0 0 6px}
+.mix h3 small{font-weight:400;color:var(--muted)}
+.mix>*{min-width:0}
+.pnote{font-size:12px;color:var(--muted);margin:10px 0 0;line-height:1.6}
+.pnote b{color:var(--ink);font-weight:600}
+/* 업계 한눈에 */
+.ov-tiles{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));border:1px solid var(--line);border-radius:var(--r);background:var(--surface);margin-top:16px}
+.ov-tiles>div{padding:12px 16px;border-left:1px solid var(--line);min-width:0}
+.ov-tiles>div:first-child{border-left:0}
+.ov-tiles .l{font-size:12px;color:var(--muted)} .ov-tiles .v{font-size:20px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis} .ov-tiles .d{font-size:12px;color:var(--muted)}
+@media (max-width:900px){.ov-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.ov-tiles>div{border-left:0;border-top:1px solid var(--line)}.ov-tiles>div:nth-child(-n+2){border-top:0}.ov-tiles>div:nth-child(even){border-left:1px solid var(--line)}}
+.ovhi{margin:8px 0 0;padding-left:18px;font-size:14px;line-height:1.7}
+.ovhi li::marker{color:var(--accent)}
+.ovt{font-size:13px}
+.ovt th{vertical-align:bottom;white-space:normal;line-height:1.3;padding:6px 8px}
+.ovt th button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;text-align:right}
+.ovt th button:hover{color:var(--ink)} .ovt th button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ovt th[aria-sort] button{color:var(--ink);font-weight:600}
+.ovt th small{display:block;font-size:11px;font-weight:400;color:var(--muted)}
+.ovt th:first-child,.ovt td:first-child{position:sticky;left:0;background:var(--surface);z-index:1;text-align:left}
+.ovt td{position:relative}
+.ovt td.t{background-clip:padding-box}
+.ovt td .b{position:absolute;left:8px;bottom:4px;height:3px;border-radius:2px;background:var(--accent);opacity:.5}
+.ovt tr.cur td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+.ovt tr.small td{color:var(--muted)}
+.ovt button.co{font:inherit;font-size:13px;background:none;border:0;color:var(--ink);cursor:pointer;padding:0;text-align:left;white-space:nowrap}
+.ovt button.co:hover{color:var(--accent);text-decoration:underline}
+.ovt button.co:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ovt .rk{display:inline-block;min-width:1.6em;color:var(--muted);font-family:var(--f-num);font-size:11px}
+.sw{display:inline-block;width:14px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:4px}
 @media (max-width:900px){.mix{grid-template-columns:minmax(0,1fr)}}
 .search{position:relative;flex:1 1 320px;max-width:520px;margin-left:auto}
 .search input{width:100%;font:inherit;font-size:15px;padding:10px 14px 10px 38px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--ink)}
@@ -180,6 +210,7 @@ footer{margin-top:28px;font-size:12px;color:var(--muted);border-top:1px solid va
 <main class="wrap">
   <div class="quick" id="quick" aria-label="빠른 선택"></div>
   <nav class="tabs" role="tablist" aria-label="화면 선택">
+    <button type="button" role="tab" id="tabOv" aria-controls="viewOv" aria-selected="false">업계 한눈에</button>
     <button type="button" role="tab" id="tabCo" aria-controls="viewCo" aria-selected="true">회사 조회</button>
     <button type="button" role="tab" id="tabQa" aria-controls="viewQa" aria-selected="false">검증 현황<span class="cnt" id="qaCnt"></span></button>
   </nav>
@@ -187,6 +218,16 @@ footer{margin-top:28px;font-size:12px;color:var(--muted);border-top:1px solid va
     <div><h1 id="coName">신한라이프</h1><div class="sub" id="coSub"></div></div>
     <div class="seg" id="yearSeg" role="group" aria-label="연도 선택"></div>
   </section>
+
+  <div id="viewOv" role="tabpanel" aria-labelledby="tabOv" hidden>
+    <section class="ov-tiles" id="ovTiles" aria-label="업계 합계"></section>
+    <section class="panel" style="margin-top:16px"><h2>이 기간에 눈에 띄는 점 <small>아래 표의 숫자로 자동 계산</small></h2><ul class="ovhi" id="ovHi"></ul></section>
+    <section class="panel" style="margin-top:16px">
+      <h2>회사별 핵심 지표 <small id="ovSub">머리글을 누르면 정렬 · 회사명을 누르면 상세 화면</small></h2>
+      <div class="tblwrap"><table class="ovt" id="ovTbl"></table></div>
+      <div class="legend" id="ovLg"></div>
+    </section>
+  </div>
 
   <div id="viewCo" role="tabpanel" aria-labelledby="tabCo">
   <section class="kpis" id="kpis" aria-label="핵심 지표"></section>
@@ -199,7 +240,7 @@ footer{margin-top:28px;font-size:12px;color:var(--muted);border-top:1px solid va
 
   <div class="grid2" id="lifeGrid">
     <section class="panel"><h2>조정 추정치 변동 요인 <small>억 원 · CSM 영향</small></h2><div class="chart" id="fac"></div></section>
-    <section class="panel"><h2>가정과 실제 <small>예실차·미래 예상손해율</small></h2><div class="tblwrap" id="aeTbl"></div></section>
+    <section class="panel"><h2>미래 예상손해율 <small>위험보험료 대비 예상보험금 주석</small></h2><div class="tblwrap" id="aeTbl"></div></section>
   </div>
 
   <section class="panel" style="margin-top:16px" id="nlPanel" hidden>
@@ -209,6 +250,15 @@ footer{margin-top:28px;font-size:12px;color:var(--muted);border-top:1px solid va
       <div><h3>연도별 손익 지표</h3><div class="tblwrap" id="mixTbl"></div></div>
     </div>
     <p class="note" id="mixNote" style="font-size:12px;color:var(--muted);margin:10px 0 0;line-height:1.6"></p>
+  </section>
+
+  <section class="panel" style="margin-top:16px" id="aePanel">
+    <h2>보험금 예실차 <small>공시 주석 · 예상손해율 − 실제손해율 · 양수면 보험금이 예상보다 적게 나감</small></h2>
+    <div class="mix">
+      <div><h3>이 회사 연도별</h3><div class="tblwrap" id="aeCoTbl"></div></div>
+      <div><h3 id="aeIndH">업계 비교</h3><div class="chart" id="aeInd"></div></div>
+    </div>
+    <p class="pnote" id="aeNote"></p>
   </section>
 
   <section class="panel" style="margin-top:16px" id="capPanel">
@@ -243,6 +293,7 @@ footer{margin-top:28px;font-size:12px;color:var(--muted);border-top:1px solid va
     <section class="panel" style="margin-top:16px" id="exPanel">
       <h2>원문 표 자동 추출 <small>공시 원문 표 → 변동표 자동 추출값과 수작업 판독값 대조</small></h2>
       <p class="ex-stats" id="exStats"></p>
+      <p class="ex-stats" id="exClaims" hidden></p>
       <div class="tblwrap"><table class="fixes" id="exCases"></table></div>
     </section>
     <section class="panel" style="margin-top:16px">
@@ -276,6 +327,8 @@ footer{margin-top:28px;font-size:12px;color:var(--muted);border-top:1px solid va
       <div data-rule="R4"><b>R4 포트폴리오 합계</b> 포트폴리오 합 = 공시 합계(예상보험금 표)</div>
       <div data-rule="R5"><b>R5 급변 탐지</b> <span id="r5Text">위험보험료 ±50% 이상, 상쇄율 업계 강건 z ≥ 3</span></div>
       <div data-rule="R6"><b>R6 기준 변경 문구</b> 주석의 '제외하여 작성·제도변경·재작성' 등 탐지</div>
+      <div data-rule="R7"><b>R7 예실차 산식</b> 예상손해율 − 실제손해율 = 공시 예실차(반올림 허용)</div>
+      <div data-rule="R8"><b>R8 예실차 재공시</b> 그해 공시 값 = 다음 해 보고서가 다시 적은 전기 값</div>
     </div>
   </section>
 
@@ -290,7 +343,7 @@ const C = D.companies; const byName = Object.fromEntries(C.map(c=>[c.name,c]));
 const SEG = D.meta.seg || {key:'life',label:'생명보험',page:'index.html',default:'신한라이프',ex:'신한, 삼성, 농협',quick:['신한라이프','삼성생명','한화생명','교보생명','NH농협생명','미래에셋생명']};
 const NL = SEG.key==='nonlife';
 const LSKEY = 'csm-explorer' + (SEG.key==='life'? '' : '-'+SEG.key);   // 업권마다 따로 기억(생보에서 고른 회사가 손보 화면에 섞이지 않게)
-let cur = { co: byName[SEG.default]? SEG.default : C[0].name, year: '2025', metric: 'close' };
+let cur = { co: byName[SEG.default]? SEG.default : C[0].name, year: '2025', metric: 'close', tab: 'ov', ovSort: {k:'close', d:-1} };   // 첫 화면 = 업계 한눈에
 try { const s = JSON.parse(localStorage.getItem(LSKEY)||'null'); if (s && byName[s.co]) cur = Object.assign(cur, s); } catch(e){}
 const $ = id => document.getElementById(id);
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -325,7 +378,7 @@ function showSugg(){ list = match(q.value); hi = list.length? 0 : -1;
   sg.hidden = false; combo.setAttribute('aria-expanded','true'); }
 function hideSugg(){ sg.hidden = true; combo.setAttribute('aria-expanded','false'); }
 function pick(name){ cur.co = name; const yrs = Object.keys(byName[name].years); if(!yrs.includes(cur.year)) cur.year = yrs.includes('2025')?'2025':yrs[yrs.length-1];
-  q.value=''; hideSugg(); q.blur(); if(cur.tab==='qa'){ setTab('co'); } else { render(); save(); } }
+  q.value=''; hideSugg(); q.blur(); if(cur.tab!=='co'){ setTab('co'); window.scrollTo({top:0}); } else { render(); save(); } }
 q.addEventListener('input', showSugg); q.addEventListener('focus', showSugg);
 q.addEventListener('keydown', e=>{
   if (e.key==='ArrowDown'||e.key==='ArrowUp'){ if(!list.length) return; e.preventDefault(); hi=(hi+(e.key==='ArrowDown'?1:-1)+list.length)%list.length;
@@ -386,7 +439,8 @@ function hbars(host, items, opt={}){
     el('rect',{x:a,y:yy+5,width:Math.max(1.5,b-a),height:rowH-10,rx:3,fill:col},s);
     const kk = W<480 && d.k.length>7 ? (SHORT[d.k]||d.k.slice(0,7)+'…') : d.k;
     el('text',{x:L-8,y:yy+rowH/2+4,'text-anchor':'end','font-size':W<480?11:12,fill:d.hl?css('--ink'):css('--muted'),'font-weight':d.hl?600:400},s,kk);
-    el('text',{x:(d.v>=0?b+6:a-6),y:yy+rowH/2+4,'text-anchor':d.v>=0?'start':'end','font-size':11.5,fill:css('--ink'),'font-family':css('--f-num')},s,opt.fmt?opt.fmt(d.v):n0(d.v)); });
+    const tx=opt.fmt?opt.fmt(d.v):n0(d.v), roomL=a-L-8 >= tx.length*7.2;   // 음수 막대가 왼쪽 끝까지 가면 값 글자를 0선 오른쪽에(회사 이름과 겹치지 않게)
+    el('text',{x:(d.v>=0||!roomL? b+6 : a-6),y:yy+rowH/2+4,'text-anchor':(d.v>=0||!roomL)?'start':'end','font-size':11.5,fill:css('--ink'),'font-family':css('--f-num')},s,tx); });
 }
 
 /* ---------- 화면 그리기 ---------- */
@@ -405,12 +459,20 @@ if(NL) Object.assign(METRICS,{          // 손보 신계약 CSM 배수는 분모
   long_share:['장기보험 비중',(r,c,y)=>FV(c,y,'long_share'),v=>pct(v)],
   gmm_ratio:['장기 보험서비스비용률',(r,c,y)=>FV(c,y,'gmm_ratio'),v=>pct(v,1)],
   paa_ratio:['자동차·일반 비용률',(r,c,y)=>FV(c,y,'paa_ratio'),v=>pct(v,1)]});
+const aeOf=(c,y)=>{ const a=(c.ae||[]).find(a=>a.year===y); return a? a.ae : null; };
+const sgn=(v,d=1)=>v==null? '–' : (v>0?'+':v<0?'−':'')+Math.abs(v).toFixed(d);
+const dp=v=>Math.abs(Math.round(v*10)-v*10)<1e-6? 1 : 2;                // 공시가 소수 둘째 자리까지면 둘째 자리까지(−3.15%p, +0.02%p), 아니면 첫째 자리
+const aef=v=>v==null? '–' : sgn(v, dp(v))+'%p';
+METRICS.ae=['보험금 예실차',(r,c,y)=>aeOf(c,y),aef];
 Object.keys(METRICS).forEach(k=>{ if(!C.some(c=>Object.keys(c.years).some(y=>METRICS[k][1](c.years[y],c,y)!=null))) delete METRICS[k]; });   // 그 업권에 자료가 없는 지표는 숨김
 $('metricSel').innerHTML=Object.entries(METRICS).map(([k,[n]])=>`<button type="button" data-m="${k}">${n}</button>`).join('');
 $('metricSel').addEventListener('click',e=>{const b=e.target.closest('button'); if(b){cur.metric=b.dataset.m; render(); save();}});
 $('yearSeg').addEventListener('click',e=>{const b=e.target.closest('button'); if(b&&!b.disabled){cur.year=b.dataset.y; render(); save();}});
 
 function render(){
+  if(cur.tab==='ov'){ $('coName').textContent='업계 한눈에'; $('coSub').textContent=`${SEG.label}사 ${D.meta.n_company}곳 · ${cur.year} · 공시 주석과 금감원 통계를 자동 수집·검증한 값`;
+    $('yearSeg').innerHTML=D.years.map(y=>`<button type="button" data-y="${y}" aria-pressed="${y===cur.year}">${y}</button>`).join('');
+    renderOv(); document.title=`업계 한눈에 · ${SEG.label} · CSM 공시 탐색기`; return; }
   if(cur.tab==='qa'){ $('coName').textContent='검증 현황'; $('coSub').textContent=`${D.meta.n_company}개사 · 규칙 ${D.meta.n_rules||6}개 · 걸린 항목은 원문을 확인해 판단과 근거를 기록`;
     $('yearSeg').innerHTML=D.years.map(y=>`<button type="button" data-y="${y}" aria-pressed="${y===cur.year}">${y}</button>`).join('');
     renderQa(); return; }
@@ -441,34 +503,139 @@ function render(){
   const cnt={}; yc.forEach(k=>cnt[k.status]=(cnt[k.status]||0)+1);
   $('tally').innerHTML=Object.keys(ST).filter(s=>cnt[s]).map(s=>`<span class="chip ${ST[s][0]}">${ST[s][1]} ${cnt[s]}</span>`).join('');
   $('checks').innerHTML= yc.length? yc.map(k=>`<li><span class="chip ${ST[k.status][0]}">${ST[k.status][1]}</span><div><b>${esc(k.rule)}</b><span>${esc(k.detail)}</span>${k.decision?`<span class="review"><em>${esc(k.decision)}</em>${esc(k.note)}</span>`:''}</div></li>`).join('') : '<li class="empty">이 기간에 해당하는 검증 규칙이 없습니다.</li>';
-  $('lifeGrid').hidden = !(D.meta.has? (D.meta.has.assump||D.meta.has.ae||D.meta.has.lossratio) : true);
+  $('lifeGrid').hidden = !(D.meta.has? (D.meta.has.assump||D.meta.has.lossratio) : true);
   $('notesPanel').hidden = D.meta.has? !D.meta.has.notes : false;
   $('nlPanel').hidden = !NL;
   if(NL) renderMix(c);
   // 요인
   hbars($('fac'), r.assump? Object.entries(r.assump).map(([k,v])=>({k,v})) : [], {signed:true, empty:'이 기간의 요인별 분해는 공시되지 않았거나 합계가 맞지 않아 제외했습니다.'});
-  // 가정과 실제
+  // 미래 예상손해율(생보 분석 엑셀) · 보험금 예실차는 아래 별도 패널
   const yrs=['2023','2024','2025'];
-  const aeBy=Object.fromEntries(c.ae.map(a=>[a.year,a]));
   const lrBy=(cat,y)=>c.lossratio.find(l=>l.cat===cat&&String(l.year)===y);
   const row=(lab,f)=>`<tr><td>${lab}</td>${yrs.map(y=>`<td class="num">${f(y)}</td>`).join('')}</tr>`;
   const fmtp=v=>v==null?'–':v.toFixed(1)+'%';
   $('aeTbl').innerHTML=`<table><thead><tr><th>항목</th>${yrs.map(y=>`<th>${y}</th>`).join('')}</tr></thead><tbody>
-   ${row('예상손해율',y=>fmtp(aeBy[y]?.exp))}${row('실제손해율',y=>fmtp(aeBy[y]?.act))}
-   ${row('예실차 (%p)',y=>{const v=aeBy[y]?.ae; return v==null?'–':`<span class="${v<0?'down':'up'}">${v>0?'+':''}${v.toFixed(2)}</span>`})}
    ${row('연말 1년차 예상손해율 · 합계',y=>fmtp(lrBy('합계',y)?.r1))}${row('연말 1년차 예상손해율 · 건강',y=>fmtp(lrBy('건강',y)?.r1))}
    ${row('연말 현재가치 예상손해율 · 합계',y=>fmtp(lrBy('합계',y)?.rPV))}</tbody></table>
-   <p style="font-size:12px;color:var(--muted);margin:8px 0 0">예실차 = 예상 − 실제(음수면 실제 보험금이 예상보다 많음). 연말 예상손해율은 「위험보험료 대비 예상보험금」 주석 기준으로, 예실차 표와 분모가 달라 수준이 아닌 연도 간 변화로 봐야 합니다.</p>`;
-  renderCap(c, r); renderSens(c);
+   <p style="font-size:12px;color:var(--muted);margin:8px 0 0">연말 예상손해율은 「위험보험료 대비 예상보험금」 주석을 분석 엑셀로 옮긴 값입니다. 아래 '보험금 예실차'와 분모가 달라 수준이 아닌 연도 간 변화로 봐야 합니다.</p>`;
+  renderAe(c); renderCap(c, r); renderSens(c);
   // 업계
   const [mn,get,fmt]=METRICS[cur.metric];
   const items=C.filter(x=>x.years[cur.year]&&get(x.years[cur.year],x,cur.year)!=null).map(x=>({k:x.name,v:get(x.years[cur.year],x,cur.year),hl:x.name===c.name})).sort((a,b)=>b.v-a.v);
-  hbars($('ind'), items, {L:120,rowH:22,fmt, empty:'이 기간에 비교할 자료가 없습니다.', tick: cur.metric==='close'||cur.metric==='new'? (t=>(t/10000).toFixed(t%10000?1:0)+'조') : (cur.metric==='replace'||cur.metric==='multiple')? (t=>t.toFixed(1)+'배') : (cur.metric==='kics'||cur.metric==='p25')? (t=>Math.round(t)+'%') : (t=>Math.round(t*100)+'%')});
+  hbars($('ind'), items, {L:120,rowH:22,fmt, empty:'이 기간에 비교할 자료가 없습니다.', tick: cur.metric==='close'||cur.metric==='new'? (t=>(t/10000).toFixed(t%10000?1:0)+'조') : (cur.metric==='replace'||cur.metric==='multiple')? (t=>t.toFixed(1)+'배') : (cur.metric==='kics'||cur.metric==='p25')? (t=>Math.round(t)+'%') : cur.metric==='ae'? (t=>Math.round(t)+'%p') : (t=>Math.round(t*100)+'%')});
   // 원문 신호
   $('notes').innerHTML = c.notes.length? c.notes.map(n=>`<li><q>${esc(n.text)}</q><small>${esc(n.report)} 보고서 · ${esc(n.kind)}</small></li>`).join('') : '<li class="empty" style="border:0;padding:0">탐지된 기준 변경 문구가 없습니다.</li>';
   document.title = `${c.name} · CSM 공시 탐색기`;
 }
 
+
+/* ---------- 보험금 예실차 (회사 화면) ---------- */
+const MEDMIN=100;                                         // 업계 중앙값·색 기준: 그해 CSM 100억 원 이상 회사(서버 계산과 같은 기준)
+const isA=y=>/^\d{4}$/.test(y);
+const josa=(w,a,b)=>{ const k=w.charCodeAt(w.length-1); return (k>=0xAC00&&k<=0xD7A3&&(k-0xAC00)%28)? a : b; };
+const p1=v=>v==null?'–':v.toFixed(dp(v));
+function renderAe(c){
+  const has=D.meta.has&&D.meta.has.ae; $('aePanel').hidden=!has; if(!has) return;
+  const L=(c.ae||[]).slice().sort((a,b)=>a.year.localeCompare(b.year)), M=D.meta.ae_median||{};
+  const bigAt=(o,y)=>o.years[y] && o.years[y].close>=MEDMIN;
+  const rankOf=y=>{ const me=aeOf(c,y); if(me==null||!bigAt(c,y)) return null; const v=C.filter(o=>bigAt(o,y)).map(o=>aeOf(o,y)).filter(v=>v!=null).sort((a,b)=>b-a); return [v.indexOf(me)+1, v.length]; };
+  if(!L.length){ $('aeCoTbl').innerHTML='<div class="empty">이 회사의 보험금 예실차 표를 공시 주석에서 찾지 못했습니다.</div>'; }
+  else { const row=(lab,f)=>`<tr><td>${lab}</td>${L.map(a=>`<td class="num">${f(a)}</td>`).join('')}</tr>`;
+    $('aeCoTbl').innerHTML=`<table><thead><tr><th>항목</th>${L.map(a=>`<th>${esc(a.year)}</th>`).join('')}</tr></thead><tbody>`+
+      row('예상손해율 <small style="color:var(--muted)">A</small>',a=>a.exp==null?'–':p1(a.exp)+'%')+row('실제손해율 <small style="color:var(--muted)">B</small>',a=>a.act==null?'–':p1(a.act)+'%')+
+      row('<b>예실차</b> <small style="color:var(--muted)">A − B</small>',a=>`<b class="${a.ae<0?'down':a.ae>0?'up':''}" title="${esc(a.source)}">${aef(a.ae)}</b>`)+
+      row('업계 순위 <small style="color:var(--muted)">높을수록 유리 · CSM 100억 이상</small>',a=>{const r=rankOf(a.year); return r? `${r[0]}위<small style="color:var(--muted)"> / ${r[1]}</small>` : '–';})+
+      row('업계 중앙값 <small style="color:var(--muted)">CSM 100억 이상</small>',a=>M[a.year]? sgn(M[a.year].median)+'%p' : '–')+'</tbody></table>'; }
+  // 업계 비교: 선택한 연도(반기면 최근 연간)
+  const yrsAll=[...new Set(C.flatMap(o=>(o.ae||[]).map(a=>a.year)))].sort();
+  const Y=(isA(cur.year)&&C.filter(o=>aeOf(o,cur.year)!=null).length>=5)? cur.year : (Object.keys(M).sort().pop()||yrsAll[yrsAll.length-1]);
+  const small=[], items=[];
+  C.forEach(o=>{ const v=aeOf(o,Y); if(v==null) return; const yr=o.years[Y];
+    if(o.name!==c.name && yr && yr.close<MEDMIN) small.push(`${o.name} ${aef(v)}`); else items.push({k:o.name,v,hl:o.name===c.name}); });
+  items.sort((a,b)=>b.v-a.v);
+  $('aeIndH').innerHTML=`업계 비교 · ${esc(Y)} <small>${M[Y]? `중앙값 ${sgn(M[Y].median)}%p · ${M[Y].n}곳 중 ${M[Y].n_neg}곳 음수` : ''}</small>`;
+  hbars($('aeInd'), items, {L:120,rowH:22,signed:true,fmt:aef,tick:t=>Math.round(t)+'%p',empty:'이 기간에 비교할 예실차 공시가 없습니다.'});
+  const src=L.map(a=>`${a.year}년 값 ← ${a.source}`).join(' · ');
+  $('aeNote').innerHTML=`<b>읽는 법</b> 예상손해율은 그해 가정으로 예상한 보험금, 실제손해율은 실제 발생한 보험금을 같은 위험보험료로 나눈 값입니다. 예실차가 음수면 보험금이 예상보다 많이 나갔다는 뜻이고, 이런 차이가 이어지면 결산 때 위험률 가정을 올려 CSM이 줄 수 있습니다(조정 추정치 변동). 회사마다 대상 계약(장기보험 전체, 원수·수재 포함 여부)이 조금씩 달라 수준보다 방향과 추이를 보세요. 2024년 사업보고서부터 새로 공시된 주석입니다.`+
+    (small.length? ` 업계 비교에서 CSM 100억 원 미만 회사는 위험보험료가 작아 비율이 크게 흔들려 뺐습니다(${esc(small.join(', '))}).` : '')+(src? `<br>자료: ${esc(src)}` : '');
+}
+
+/* ---------- 업계 한눈에 ---------- */
+const prevY=y=>isA(y)? String(+y-1) : null;
+const medOf=a=>{ const v=a.filter(x=>x!=null&&isFinite(x)).sort((p,q)=>p-q); if(!v.length) return null; const m=(v.length-1)/2; return (v[Math.floor(m)]+v[Math.ceil(m)])/2; };
+const chkOf=(c,y)=>c.checks.filter(k=>k.year===y||(isA(y)&&k.year===y.slice(0,4)));
+const OVC=[
+  {k:'close',n:'기말 CSM',sub:'잔액',get:(c,y)=>c.years[y]? c.years[y].close : null,fmt:v=>won(v),bar:true,dir:0},
+  {k:'new',n:'신계약 CSM',sub:'그해 누계',get:(c,y)=>c.years[y]? c.years[y].new : null,fmt:v=>won(v),bar:true,dir:0},
+  {k:'new_g',n:'신계약 증감',sub:'전년 대비',get:(c,y)=>{ const a=c.years[y], b=c.years[prevY(y)]; return a&&b&&b.new>0? a.new/b.new-1 : null; },fmt:v=>sgn(v*100)+'%',dir:1},
+  {k:'offset',n:'조정 ÷ 신계약',sub:'낮을수록 좋음',get:(c,y)=>c.years[y]? c.years[y].offset : null,fmt:v=>pct(v),dir:-1},
+  {k:'release_rate',n:'상각률',sub:'이익으로 풀린 비율',get:(c,y)=>c.years[y]? c.years[y].release_rate : null,fmt:v=>pct(v,1),dir:0},
+  {k:'ae',n:'보험금 예실차',sub:'%p · 0 기준',get:(c,y)=>aeOf(c,y),fmt:aef,dir:1,zero:true},
+  {k:'kics',n:'K-ICS',sub:'지급여력비율',get:(c,y)=>FV(c,y,'kics'),fmt:v=>Math.round(v)+'%',dir:1},
+  ...(NL? [{k:'gmm_ratio',n:'장기 비용률',sub:'비용 ÷ 보험수익',get:(c,y)=>FV(c,y,'gmm_ratio'),fmt:v=>pct(v,1),dir:-1},
+           {k:'paa_ratio',n:'자동차·일반 비용률',sub:'100% 넘으면 적자',get:(c,y)=>FV(c,y,'paa_ratio'),fmt:v=>pct(v,1),dir:-1}]
+       : [{k:'p25',n:'25회차 유지율',sub:'FISIS',get:(c,y)=>FV(c,y,'p25'),fmt:v=>v.toFixed(1)+'%',dir:1}]),
+  {k:'chk',n:'자동 검증',sub:'걸린 항목',get:(c,y)=>{ const k=chkOf(c,y); return k.length? k.filter(x=>x.status==='불일치'||x.status==='주의').length : null; },fmt:v=>v===0?'✓':'! '+v,dir:0,chk:true}];
+function renderOv(){
+  const y=cur.year, R=C.filter(c=>c.years[y]), py=prevY(y), big=R.filter(c=>c.years[y].close>=MEDMIN);
+  const cols=OVC.filter(col=>col.chk||R.some(c=>col.get(c,y)!=null));          // 그 기간에 값이 하나도 없는 지표(반기의 예실차·전년 대비 등)는 열을 숨김
+  // 색 기준: 그해 CSM 100억 원 이상 회사의 중앙값(예실차는 0)과 강건 편차(MAD)
+  const sc={}; cols.filter(col=>col.dir).forEach(col=>{ const v=big.map(c=>col.get(c,y)).filter(v=>v!=null); if(v.length<4) return;
+    const m=medOf(v), mad=medOf(v.map(x=>Math.abs(x-m)))*1.4826||1e-9; sc[col.k]={m,c:col.zero?0:m,s:mad}; });
+  const tint=(col,v)=>{ const t=sc[col.k]; if(!t||v==null) return ''; const z=(v-t.c)/t.s*col.dir; if(Math.abs(z)<0.5) return '';
+    const a=Math.round(Math.min(Math.abs(z),3)/3*36+6); return `background:color-mix(in srgb, var(${z>0?'--pos':'--neg'}) ${a}%, transparent)`; };
+  const mx={}; cols.filter(col=>col.bar).forEach(col=>{ mx[col.k]=Math.max(1,...R.map(c=>col.get(c,y)||0)); });
+  // 정렬
+  const S=cur.ovSort&&cols.some(col=>col.k===cur.ovSort.k)? cur.ovSort : {k:'close',d:-1}; const sc0=cols.find(col=>col.k===S.k);
+  const rows=R.slice().sort((a,b)=>{ const va=sc0.get(a,y), vb=sc0.get(b,y); if(va==null&&vb==null) return 0; if(va==null) return 1; if(vb==null) return -1; return (va-vb)*S.d; });
+  // 순위: 금액(기말·신계약)은 전체 회사, 비율은 그해 CSM 100억 원 이상 회사 중(업계 중앙값·색과 같은 기준)
+  const rnk={}; cols.forEach(col=>{ const v=(col.bar? R : big).map(c=>col.get(c,y)).filter(v=>v!=null).sort((a,b)=>(b-a)*(col.dir<0?-1:1)); rnk[col.k]=v; });
+  $('ovTbl').innerHTML=`<thead><tr><th>회사</th>${cols.map(col=>`<th${col.k===S.k?` aria-sort="${S.d<0?'descending':'ascending'}"`:''}><button type="button" data-k="${col.k}">${col.n}${col.k===S.k?(S.d<0?' ↓':' ↑'):''}<small>${col.sub}</small></button></th>`).join('')}</tr></thead><tbody>`+
+    rows.map((c,i)=>{ const yr=c.years[y]; const iv=sc0.get(c,y);
+      return `<tr class="${c.name===cur.co?'cur':''} ${yr.close<MEDMIN?'small':''}"><td><span class="rk">${iv==null?'':i+1}</span><button type="button" class="co" data-n="${esc(c.name)}"${yr.close<MEDMIN?' title="CSM 100억 원 미만 — 업계 중앙값·색 기준에서 제외"':''}>${esc(c.name)}</button></td>`+
+        cols.map(col=>{ const v=col.get(c,y); if(v==null) return '<td class="num" style="color:var(--na)">–</td>';
+          if(col.chk){ const k=chkOf(c,y), bad=k.some(x=>x.status==='불일치'), rev=k.filter(x=>(x.status==='불일치'||x.status==='주의')&&x.decision).length;
+            return `<td class="num"><span class="dot ${v===0?'ok':bad?'bad':'warn'}" title="${esc(`${c.name} ${y}: 규칙 ${k.length}건 중 걸린 항목 ${v}건${v?` (검토 기록 ${rev}건)`:''}`)}">${v===0?'✓':v}</span></td>`; }
+          const L=rnk[col.k], r=L.indexOf(v)+1, t=sc[col.k];
+          const tip=`${c.name} · ${col.n} ${col.fmt(v)} · ${r? `${r}위/${L.length}곳` : '순위 제외(CSM 100억 원 미만)'}${t?` · 업계 중앙값 ${col.fmt(t.m)}`:''}`;
+          return `<td class="num" style="${tint(col,v)}" title="${esc(tip)}">${col.fmt(v)}${col.bar&&v>0?`<span class="b" style="width:calc((100% - 16px)*${(v/mx[col.k]).toFixed(3)})"></span>`:''}</td>`; }).join('')+'</tr>'; }).join('')+'</tbody>';
+  $('ovLg').innerHTML=`<span><i class="sw" style="background:color-mix(in srgb, var(--pos) 30%, transparent)"></i>업계 중앙값보다 유리</span><span><i class="sw" style="background:color-mix(in srgb, var(--neg) 30%, transparent)"></i>불리</span><span>진할수록 차이가 큼 · 기준은 그해 CSM 100억 원 이상 회사(예실차는 0 기준) · 막대 = 금액 크기 · ${isA(y)?'':'반기는 그해 1월부터의 누계 · '}칸에 마우스를 올리면 순위</span>`;
+  // 합계 타일
+  const sum=(L,k,yy)=>L.reduce((a,c)=>a+(c.years[yy][k]||0),0);
+  const both=py? R.filter(c=>c.years[py]) : [];
+  const yoy=k=>{ if(!both.length) return null; const a=sum(both,k,y), b=sum(both,k,py); return b>0? a/b-1 : null; };
+  const yoyTxt=k=>{ const g=yoy(k); return g==null? (isA(y)?'전년 자료 없음':'반기 누계') : `전년 대비 ${sgn(g*100)}%${both.length<R.length?` (두 해 모두 있는 ${both.length}곳)`:''}`; };
+  const sNew=sum(R,'new',y), sAdj=sum(R,'adjust',y), M=(D.meta.ae_median||{})[y];
+  const K=R.flatMap(c=>chkOf(c,y)), kf=K.filter(x=>x.status==='불일치'||x.status==='주의');
+  $('ovTiles').innerHTML=[
+    ['기말 CSM 합계', won(sum(R,'close',y)), yoyTxt('close')],
+    ['신계약 CSM 합계', won(sNew), yoyTxt('new')],
+    ['조정 추정치 변동 합계', won(sAdj), sNew>0? `신계약 합계의 ${pct(Math.abs(sAdj)/sNew)}만큼 ${sAdj<0?'깎음':'더함'}` : '—'],
+    ['보험금 예실차 중앙값', M? sgn(M.median)+'%p' : '–', M? `${M.n}곳 중 ${M.n_neg}곳 음수(보험금 초과)` : '연간 보고서에만 공시'],
+    ['자동 검증', `${K.filter(x=>x.status==='통과').length} / ${K.filter(x=>x.status!=='자료없음').length}`, `걸린 항목 ${kf.length}건 · 검토 기록 ${kf.filter(x=>x.decision).length}건`]
+  ].map(([l,v,d])=>`<div><div class="l">${l}</div><div class="v num">${v}</div><div class="d">${d}</div></div>`).join('');
+  // 눈에 띄는 점(모두 위 표·타일과 같은 값에서)
+  const H=[], nm=c=>`<b>${esc(c.name)}</b>`;
+  const byNew=R.filter(c=>c.years[y].new!=null).sort((a,b)=>b.years[y].new-a.years[y].new);
+  if(byNew.length>=2){ const g=yoy('new');
+    H.push(`신계약 CSM은 ${nm(byNew[0])}${josa(byNew[0].name,'이','가')} ${won(byNew[0].years[y].new)} 원으로 1위, ${esc(byNew[1].name)}${josa(byNew[1].name,'이','가')} ${won(byNew[1].years[y].new)} 원으로 2위입니다`+(g!=null? `. 업계 합계는 전년보다 ${pct(Math.abs(g),1)} ${g>=0?'늘었':'줄었'}습니다${both.length<R.length?`(두 해 모두 있는 ${both.length}곳 기준)`:''}.` : (isA(y)?'.':' (반기 누계).'))); }
+  const bo=big.filter(c=>c.years[y].offset!=null).sort((a,b)=>b.years[y].offset-a.years[y].offset);
+  if(bo.length>=4){ const m=medOf(bo.map(c=>c.years[y].offset)), up=bo.filter(c=>c.years[y].offset<0);
+    H.push(`조정 추정치 변동이 신계약 CSM을 깎은 비율(조정 ÷ 신계약)은 업계 중앙값 ${pct(m)}이고, 가장 높은 곳은 ${nm(bo[0])}(${pct(bo[0].years[y].offset)})입니다`+
+      (up.length? `. 조정이 오히려 CSM을 늘린 곳은 ${up.length}곳(${up.map(c=>esc(c.name)).join(', ')})입니다.` : '.')); }
+  if(M){ const M0=(D.meta.ae_median||{})[py];
+    H.push(`보험금 예실차는 CSM 100억 원 이상 ${M.n}곳 중 <b>${M.n_neg}곳이 음수</b>(실제 보험금이 예상보다 많음)였고 중앙값은 ${sgn(M.median)}%p입니다`+
+      (M0? `. 전년(${M0.n}곳 중 ${M0.n_neg}곳 음수, 중앙값 ${sgn(M0.median)}%p)보다 ${M.median<M0.median?'나빠졌':'나아졌'}습니다.` : '.')); }
+  const me=byName[cur.co];
+  if(me&&me.years[y]){ const rk=k=>{ const col=OVC.find(o=>o.k===k), v=col.get(me,y); if(v==null) return null; const L=rnk[k]||[], r=L.indexOf(v)+1; return `${col.n} ${col.fmt(v)}${r?`(${r}위/${L.length}곳)`:''}`; };
+    const parts=['close','new','offset','ae'].map(rk).filter(Boolean);
+    if(parts.length) H.push(`선택한 회사 ${nm(me)}: ${parts.join(' · ')}. 회사명을 누르면 상세 화면으로 갑니다.`); }
+  $('ovHi').innerHTML=H.map(t=>`<li>${t}</li>`).join('')||'<li class="empty">이 기간에 계산할 자료가 부족합니다.</li>';
+}
+$('ovTbl').addEventListener('click',e=>{ const b=e.target.closest('button.co'); if(b){ pick(b.dataset.n); return; }
+  const h=e.target.closest('th button[data-k]'); if(h){ const k=h.dataset.k, col=OVC.find(o=>o.k===k);
+    const first=(col&&col.dir<0)? 1 : -1;                    // 처음 누르면 유리한 쪽부터(비용률·조정 비율은 낮은 순)
+    cur.ovSort = (cur.ovSort&&cur.ovSort.k===k)? {k, d:-cur.ovSort.d} : {k, d:first}; render(); save(); } });
 
 /* ---------- 미래 이익 체력 ---------- */
 const BK=['1년 이내','1~2년','2~5년','5~10년','10년 초과'], BOP=[1,.78,.58,.4,.24];
@@ -595,8 +762,8 @@ function renderSens(c){
 }
 
 /* ---------- 검증 현황 ---------- */
-const RULES=['R1 변동표 항등식','R2 금감원 잔액 대조','R3 기초=전기 기말','R4 포트폴리오 합계 대조','R5 급변 탐지(위험보험료)','R5 급변 탐지(상쇄율)','R6 기준 변경 문구'];
-const RSHORT=['R1 항등식','R2 금감원','R3 연속성','R4 합계','R5 위험보험료','R5 상쇄율','R6 기준 변경'];
+const RULES=['R1 변동표 항등식','R2 금감원 잔액 대조','R3 기초=전기 기말','R4 포트폴리오 합계 대조','R5 급변 탐지(위험보험료)','R5 급변 탐지(상쇄율)','R6 기준 변경 문구','R7 예실차 산식','R8 예실차 재공시 대조'];
+const RSHORT=['R1 항등식','R2 금감원','R3 연속성','R4 합계','R5 위험보험료','R5 상쇄율','R6 기준 변경','R7 예실차','R8 재공시'];
 if((D.meta.rules||[]).length){ for(let i=RULES.length-1;i>=0;i--) if(!D.meta.rules.includes(RULES[i])){ RULES.splice(i,1); RSHORT.splice(i,1); } }   // 그 업권에서 실행한 규칙만(손보: R4·R6·위험보험료 없음)
 const SYM={'통과':'✓','주의':'!','불일치':'×','자료없음':'–'};
 const all=C.flatMap(c=>c.checks.map(k=>Object.assign({co:c.name},k)));
@@ -626,19 +793,21 @@ function renderQa(){
     $('exStats').innerHTML=`${x.n}개 회사·기간 중 <b>자동 추출 ${x.auto}</b> · 수작업 판독값과 <b>일치 ${x.match}</b>(그중 ${x.extra}건은 수작업에 없던 전환방법별 값까지 확보) · <b>자동값으로 수작업 오류 수정 ${x.corrected}</b> · 사유를 적은 보정 ${x.overridden}`;
     $('exCases').innerHTML=`<thead><tr><th>회사·기간</th><th>처리</th><th>근거</th><th>최종값</th></tr></thead><tbody>${x.cases.map(c=>`<tr><td>${esc(c.company)} ${esc(c.year)}</td><td>${esc(c.verdict)}</td><td>${esc(c.why)}</td><td>${esc(c.diff||'—')}</td></tr>`).join('')}</tbody>`;
   } else $('exPanel').hidden=true;
+  if(D.claims){ const x=D.claims, how=Object.entries(x.how).map(([k,v])=>`${esc(k)} ${v}`).join(' · '), cp=x.compare;
+    $('exClaims').hidden=false;
+    $('exClaims').innerHTML=`<b>보험금 예실차</b> ${x.n_co}개사 ${x.n}건 자동 추출(예실차 표 ${x.n_tables}개 판독${x.next_year?`, 그해 보고서에 표가 없어 다음 해 보고서의 전기 값을 쓴 ${x.next_year}건`:''}) · 당기·전기 판단 근거: ${how}`+
+      (cp? ` · 분석 엑셀 수작업 판독값과 <b>${cp.match}/${cp.n} 일치</b>`+(cp.cases.length? ` — 나머지: ${cp.cases.map(k=>`${esc(k.company)} ${esc(k.year)} ${k.status==='차이'?`(수작업 ${sgn(k.ae_m)}%p · 공시 자동 ${sgn(k.ae)}%p, R8 검토 기록 참고)`:`(${esc(k.status)})`}`).join(', ')}` : '') : ''); }
   $('fixes').innerHTML=`<thead><tr><th>발견 경로</th><th>무엇이 잘못됐나</th><th>조치</th><th>결과</th></tr></thead><tbody>${D.fixes.map(f=>`<tr><td>${esc(f.found_by)}</td><td>${esc(f.issue)}</td><td>${esc(f.action)}</td><td>${esc(f.effect)}</td></tr>`).join('')}</tbody>`;
 }
 $('matrix').addEventListener('click',e=>{const b=e.target.closest('button.co'); if(b){ setTab('co'); pick(b.dataset.n); window.scrollTo({top:0}); }});
-function setTab(t){ cur.tab=t; const qa=t==='qa';
-  $('tabCo').setAttribute('aria-selected',!qa); $('tabQa').setAttribute('aria-selected',qa);
-  $('viewCo').hidden=qa; $('viewQa').hidden=!qa;
-  document.querySelector('.head h1').textContent= qa? '검증 현황' : byName[cur.co].name;
+function setTab(t){ if(!['ov','co','qa'].includes(t)) t='ov'; cur.tab=t;
+  [['ov','tabOv','viewOv'],['co','tabCo','viewCo'],['qa','tabQa','viewQa']].forEach(([k,b,v])=>{ $(b).setAttribute('aria-selected',k===t); $(v).hidden=k!==t; });
   render(); save(); }
-$('tabCo').addEventListener('click',()=>setTab('co')); $('tabQa').addEventListener('click',()=>setTab('qa'));
+$('tabOv').addEventListener('click',()=>setTab('ov')); $('tabCo').addEventListener('click',()=>setTab('co')); $('tabQa').addEventListener('click',()=>setTab('qa'));
 
 $('foot').innerHTML=`공시자료 기반 개인 분석 프로젝트이며 각 보험회사의 공식 자료가 아닙니다. 자료: 금융감독원 DART 사업·감사보고서 주석(별도), FISIS Open API. 단위 억 원, 반기·분기는 그해 1월부터의 누적 수치. 공시 보고서 ${D.meta.n_reports}건 · 검증 ${D.meta.n_checks}건 · 데이터 기준일 ${D.meta.built}. 만든 사람: 정민석`;
-if(location.hash==='#qa') cur.tab='qa';
-if(cur.tab==='qa') setTab('qa'); else render();
+const HT={'#ov':'ov','#co':'co','#qa':'qa'}; if(HT[location.hash]) cur.tab=HT[location.hash];   // 링크로 화면 지정(#ov 업계 한눈에 · #co 회사 조회 · #qa 검증 현황)
+setTab(cur.tab||'ov');
 const rerender=()=>render();
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',rerender);
 let rt; window.addEventListener('resize',()=>{clearTimeout(rt); rt=setTimeout(rerender,150);});
