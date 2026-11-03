@@ -731,6 +731,7 @@ def test_claims_identity_and_restatements():
 def test_claims_match_manual_reading_life():
     import pandas as pd
     m = pd.read_csv(os.path.join(D, 'ae_compare.csv'), dtype={'year': str})
+    m = m[m.status != '자동만']                      # 분석 엑셀 이후 새로 나온 공시(예: ABL생명 2025)는 수작업 값이 없음 — 대조 대상 아님
     assert (m.status == '일치').sum() >= 41 and set(zip(m[m.status != '일치'].company, m[m.status != '일치'].year)) <= {('iM라이프', '2024')}, m[m.status != '일치']
 
 
