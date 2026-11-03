@@ -233,7 +233,7 @@ def summarize(E, mv):
                s1_range=[round(float(x25.s1.min()), 4), round(float(x25.s1.max()), 4)],
                s10_range=[round(float(x25.s10p.min()), 4), round(float(x25.s10p.max()), 4)], n_2025=int(len(x25)),
                s1_min_co=x25.s1.idxmin(), s1_max_co=x25.s1.idxmax(),
-               rank_corr=round(float(m.s1.corr(m.rr, method='spearman')), 2), n_rank=int(len(m)),
+               rank_corr=round(float(m.s1.rank().corr(m.rr.rank())), 2), n_rank=int(len(m)),
                bt_median={k: round(float(v), 2) for k, v in bt.items()},
                bt_range={k: [round(float(g.min()), 2), round(float(g.max()), 2)] for k, g in L[L.bt_ratio.notna()].groupby('at').bt_ratio},
                restated_2023=sorted(chg))

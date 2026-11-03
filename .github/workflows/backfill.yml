@@ -12,6 +12,9 @@ on:
         description: 'DART 재수집은 건너뛰고 FISIS만'
         type: boolean
         default: false
+      rescan:
+        description: '새로 추가한 표 종류만 다시 모음 (예: claims = 보험금 예실차비율). 비우면 일반 보강 수집'
+        default: ''
 permissions:
   contents: write
 concurrency:
@@ -34,9 +37,12 @@ jobs:
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY || secrets.DART_KEY }}
           ONLY: ${{ inputs.only }}
+          RESCAN: ${{ inputs.rescan }}
         run: |
-          if [ -n "$ONLY" ]; then python pipeline/collect_extra.py --only "$ONLY"; else python pipeline/collect_extra.py; fi
+          if [ -n "$RESCAN" ]; then python pipeline/collect_extra.py --rescan "$RESCAN"
+          elif [ -n "$ONLY" ]; then python pipeline/collect_extra.py --only "$ONLY"; else python pipeline/collect_extra.py; fi
       - name: FISIS 통계 수집
+        if: ${{ inputs.rescan == '' }}
         continue-on-error: true
         env:
           FISIS_API_KEY: ${{ secrets.FISIS_API_KEY || secrets.FISIS_KEY }}

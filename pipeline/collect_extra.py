@@ -10,6 +10,7 @@
 - 결과: raw/extra_tables.csv.gz  (열: co, period, rcept_no, doc, table_no, kind, row, col, value)
 - 키: 환경변수 DART_API_KEY (GitHub Secrets). 실행: GitHub Actions '보강 수집' 워크플로
   --only 신한라이프 처럼 회사를 지정하면 그 회사만(시험용)
+  --rescan claims 처럼 표 종류를 지정하면 이미 받은 연간 보고서(2024.12~)에서 그 종류의 표만 다시 모음(종류를 새로 추가했을 때)
 """
 import os, re, sys, time
 import pandas as pd
@@ -105,7 +106,13 @@ def main():
     if '--only' in sys.argv:                          # 시험 실행: 그 회사만 다시 받음
         only = sys.argv[sys.argv.index('--only') + 1]
         have, done = have[have.co == only], done[done.co != only]
-    got = set(done.rcept_no)
+    rescan = sys.argv[sys.argv.index('--rescan') + 1] if '--rescan' in sys.argv else None
+    if rescan:                                        # 새로 추가한 표 종류만 이미 받은 보고서에서 다시 모음
+        # 예: --rescan claims → 보험금 예실차비율 표(2024 사업보고서부터 공시). 연간 보고서 2024.12 이후만, 이미 그 종류가 있는 보고서는 건너뜀(이어받기)
+        have = have[have.period.str.endswith('.12') & (have.period >= '2024.12')]
+        got = set(done[done.kind == rescan].rcept_no)
+    else:
+        got = set(done.rcept_no)
     out, n = [done], 0
     for f in have.to_dict('records'):
         if f['rcept_no'] in got:
@@ -115,6 +122,8 @@ def main():
         except SystemExit as e:                       # 한도 초과 등 → 받은 데까지 저장하고 멈춤
             note(f"{f['co']} {f['period']}: {e}", 'warning'); break
         df = pick_tables(cells, f)
+        if rescan:
+            df = df[df.kind == rescan]
         cnt = df.groupby('kind')[['doc', 'table_no']].apply(lambda d: len(d.drop_duplicates())).to_dict() if len(df) else {}
         print(f"{f['co']} {f['period']}: {cnt}")
         out.append(df); n += 1
